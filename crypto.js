@@ -25,7 +25,7 @@ function encrypt(plainMessage, key) {
 function decrypt(nonceAndCipher, key) {
     if (!Buffer.isBuffer(nonceAndCipher)) throw new Error("cipher must be of type Buffer")
     if (!Buffer.isBuffer(key)) throw new Error("key must be of type Buffer")
-    if (key.length !== sodium.crypto_secretbox_KEYBYTES) throw new Error("key kust be of size " + sodium.crypto_secretbox_KEYBYTES)
+    if (key.length !== sodium.crypto_secretbox_KEYBYTES) throw new Error("Key-length error: Expected: " + sodium.crypto_secretbox_KEYBYTES + ", Received: " + key.length)
 
     let { nonce, cipher } = _splitNonceAndCipher(nonceAndCipher)
     let plainTextBuffer = Buffer.alloc(cipher.length - sodium.crypto_secretbox_MACBYTES)

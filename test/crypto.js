@@ -1,7 +1,26 @@
 const assert = require('chai').assert
 const crypto = require('../crypto')
 
-describe("Symmetric Encryption", function() {
+describe("Crypto.js", function() {
+    describe("#hash(input)", function() {
+        it("input must be of type Buffer", function() {
+            const input = Buffer.from("hello world")
+            const output = crypto.hash(input)
+            assert.isTrue(Buffer.isBuffer(input))
+            assert.isNotNull(output)
+        })
+
+        it("throws error if input is not of type Buffer", function() {
+            const input = "plain message"
+            assert.throws(() => { crypto.hash(input) })
+        })
+
+        it("output is of type Buffer", function() {
+            const input = Buffer.from("input")
+            const output = crypto.hash(input)
+            assert.isTrue(Buffer.isBuffer(output))
+        })
+    })
     describe("#makeNonce()", function() {
         it("should return a fresh nonce at each function-call", function() {
             const n1 = crypto.makeNonce()
@@ -116,7 +135,7 @@ describe("Symmetric Encryption", function() {
             assert.isNotNull(decrypted)
         })
 
-        it("key is length 32", function() {
+        it("key must be length 32", function() {
             const m = "hello world"
             const k = crypto.makeSymmetricKey()
             const c = crypto.encrypt(m, k)
@@ -143,7 +162,7 @@ describe("Symmetric Encryption", function() {
 
     })
 
-    describe("Encryption & Decryption", function() {
+    describe("encryption & decryption", function() {
 
         it("encrypt then decrypt gives the original plain message", function() {
             const m = "hello world"
