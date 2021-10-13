@@ -53,11 +53,40 @@ function hash(input) {
     return output
 }
 
+function makeKeyPair() {
+    let sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
+    let pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
+    sodium.crypto_sign_keypair(pk, sk)
+    return {sk, pk}
+}
+
+function sign(message, sk) {
+    if (!Buffer.isBuffer(message)) throw new Error("Message-type error. Expected: Buffer. Received: " + typeof(message))
+    if (!Buffer.isBuffer(sk)) throw new Error("Signing key-type error. Expected: Buffer. Received: " + typeof(sk))
+
+    let sig = Buffer.alloc(sodium.crypto_sign_BYTES)
+    sodium.crypto_sign_detached(sig, message, sk)
+    return sig
+}
+
+function verify(signature, message, pk) {
+    if (!Buffer.isBuffer(signature)) throw new Error("Signature-type error. Expected: Buffer. Received: " + typeof(signature))
+    if (signature.length !== sodium.crypto_sign_BYTES) throw new Error("Signature-length error. Expected: " + sodium.crypto_sign_BYTES + ", Received: " + signature.length)
+    if (!Buffer.isBuffer(message)) throw new Error("Message-type error. Expected: Buffer. Received: " + typeof(message))
+    if (!Buffer.isBuffer(pk)) throw new Error("Public Key-type error. Expected: Buffer. Received: " + typeof(pk))
+    if (pk.length !== sodium.crypto_sign_PUBLICKEYBYTES) throw new Error("Public Key-length error. Expected: " + sodium.crypto_sign_PUBLICKEYBYTES + ", Received: " + pk.length)
+
+    return sodium.crypto_sign_verify_detached(signature, message, pk)
+}
+
 module.exports = {
     hash,
     makeNonce,
     makeSymmetricKey,
     encrypt,
     decrypt,
+    makeKeyPair,
+    sign,
+    verify,
     SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES
 }
