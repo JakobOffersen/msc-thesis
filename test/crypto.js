@@ -185,6 +185,67 @@ describe("Crypto.js", function() {
         })
     })
 
+    describe("Symmetric Stream Cryptography", function() {
+        describe("#streamXOR(input, nonce, ic, key)", function() {
+            it("'input' is Buffer", function() {
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                assert.throws(() => crypto.streamXOR("invalid", n, 0, k))
+                assert.doesNotThrow(() => crypto.streamXOR(Buffer.from("valid"), n, 0, k))
+            })
+
+            it("nonce is Buffer of size 24", function() {
+                const m = Buffer.from("message")
+                const n = crypto.makeNonce()
+                const nonceTooLong = Buffer.alloc(25, "nonce filling")
+                const nonceTooShort = Buffer.alloc(23, "nonce filling")
+                const k = crypto.makeSymmetricKey()
+                assert.doesNotThrow(() => crypto.streamXOR(m, n, 0, k))
+                assert.throws(() => crypto.streamXOR(m, nonceTooShort, 0, k))
+                assert.throws(() => crypto.streamXOR(m, nonceTooLong, 0, k))
+            })
+
+            it("ic is integer", function() {
+                const m = Buffer.from("message")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+
+                assert.throws(() => crypto.streamXOR(m, n, "1", k))
+                assert.doesNotThrow(() => crypto.streamXOR(m, n, 1, k))
+            })
+
+            it("key is Buffer of size 32", function() {
+                const m = Buffer.from("message")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const keyTooShort = Buffer.alloc(31, "key filling")
+                const keyTooLong = Buffer.alloc(33, "key filling")
+
+                assert.doesNotThrow(() => crypto.streamXOR(m, n, 1, k))
+                assert.throws(() => crypto.streamXOR(m, n, 0, keyTooShort))
+                assert.throws(() => crypto.streamXOR(m, n, 0, keyTooLong))
+            })
+
+            it("returns Buffer", function() {
+                const m = Buffer.from("message")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+                assert.isTrue(Buffer.isBuffer(c))
+            })
+
+            it("encryption of cipher decrypts the cipher", function() {
+                const m = Buffer.from("message")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+                const decrypted = crypto.streamXOR(c, n, 0, k)
+                assert.isFalse(m.compare(c) == 0) // .compare returns 0 when buffers are equal
+                assert.isTrue(m.compare(decrypted) == 0) // .compare returns 0 when buffers are equal
+            })
+        })
+    })
+
     describe("Assymmetric Cryptography", function() {
         describe("#makeKeyPair()", function() {
             it("returns { sk, pk } of type { Buffer, Buffer } with sizes { 64, 32 }", function() {

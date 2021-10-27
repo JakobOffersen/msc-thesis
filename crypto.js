@@ -23,10 +23,6 @@ function encrypt(plainMessage, key) {
 }
 
 function decrypt(nonceAndCipher, key) {
-    if (!Buffer.isBuffer(nonceAndCipher)) throw new Error("cipher must be of type Buffer")
-    if (!Buffer.isBuffer(key)) throw new Error("key must be of type Buffer")
-    if (key.length !== sodium.crypto_secretbox_KEYBYTES) throw new Error("Key-length error: Expected: " + sodium.crypto_secretbox_KEYBYTES + ", Received: " + key.length)
-
     let { nonce, cipher } = _splitNonceAndCipher(nonceAndCipher)
     let plainTextBuffer = Buffer.alloc(cipher.length - sodium.crypto_secretbox_MACBYTES)
     if (sodium.crypto_secretbox_open_easy(plainTextBuffer, cipher, nonce, key)) {
@@ -61,22 +57,19 @@ function makeKeyPair() {
 }
 
 function sign(message, sk) {
-    if (!Buffer.isBuffer(message)) throw new Error("Message-type error. Expected: Buffer. Received: " + typeof(message))
-    if (!Buffer.isBuffer(sk)) throw new Error("Signing key-type error. Expected: Buffer. Received: " + typeof(sk))
-
     let sig = Buffer.alloc(sodium.crypto_sign_BYTES)
     sodium.crypto_sign_detached(sig, message, sk)
     return sig
 }
 
 function verify(signature, message, pk) {
-    if (!Buffer.isBuffer(signature)) throw new Error("Signature-type error. Expected: Buffer. Received: " + typeof(signature))
-    if (signature.length !== sodium.crypto_sign_BYTES) throw new Error("Signature-length error. Expected: " + sodium.crypto_sign_BYTES + ", Received: " + signature.length)
-    if (!Buffer.isBuffer(message)) throw new Error("Message-type error. Expected: Buffer. Received: " + typeof(message))
-    if (!Buffer.isBuffer(pk)) throw new Error("Public Key-type error. Expected: Buffer. Received: " + typeof(pk))
-    if (pk.length !== sodium.crypto_sign_PUBLICKEYBYTES) throw new Error("Public Key-length error. Expected: " + sodium.crypto_sign_PUBLICKEYBYTES + ", Received: " + pk.length)
-
     return sodium.crypto_sign_verify_detached(signature, message, pk)
+}
+
+function streamXOR(input, nonce, initializationCounter, key) {
+    const res = Buffer.alloc(input.length)
+    sodium.crypto_stream_xchacha20_xor_ic(res, input, nonce, initializationCounter, key)
+    return res
 }
 
 module.exports = {
@@ -88,5 +81,6 @@ module.exports = {
     makeKeyPair,
     sign,
     verify,
+    streamXOR,
     SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES
 }
