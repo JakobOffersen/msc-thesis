@@ -226,12 +226,13 @@ describe("Crypto.js", function() {
                 assert.throws(() => crypto.streamXOR(m, n, 0, keyTooLong))
             })
 
-            it("returns Buffer", function() {
+            it("returns Buffer of same length as 'input'", function() {
                 const m = Buffer.from("message")
                 const n = crypto.makeNonce()
                 const k = crypto.makeSymmetricKey()
                 const c = crypto.streamXOR(m, n, 0, k)
                 assert.isTrue(Buffer.isBuffer(c))
+                assert.equal(c.length, m.length)
             })
 
             it("encryption of cipher decrypts the cipher", function() {
@@ -242,6 +243,28 @@ describe("Crypto.js", function() {
                 const decrypted = crypto.streamXOR(c, n, 0, k)
                 assert.isFalse(m.compare(c) == 0) // .compare returns 0 when buffers are equal
                 assert.isTrue(m.compare(decrypted) == 0) // .compare returns 0 when buffers are equal
+            })
+
+            it("allows random-access/independent 64-byte block-decryption", function() {
+                // This test encrypts a 128-byte message into a 128-byte cipher (2 blocks)
+                // Then it decrypts the cipher block by block and compares the result with the plain message
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const m = Buffer.alloc(128, "a very long message that keeps on going on for ever ljghsklfghjldhgk kghbskdfhgajsdhlgkdsjf jkhlb klfgshjdfkl ghjdskl gjsdlf")
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                // Split the cipher into 2 64-byte buffers
+                const c1 = Buffer.alloc(64)
+                const c2 = Buffer.alloc(64)
+                c.copy(c1, 0, 0, 64) // copies first 64 bytes into 'c1'
+                c.copy(c2, 0, 64, 128) // copies last 64 bytes into 'c2'
+
+                // Decrypt the two blocks independently
+                const m1 = crypto.streamXOR(c1, n, 0, k)
+                const m2 = crypto.streamXOR(c2, n, 1, k) // Notice that 'ic' is incremented by 1 here
+
+                const combined = Buffer.concat([m1, m2])
+                assert.isTrue(Buffer.compare(m, combined) === 0) // Buffer.compare returns 0 when the buffers are equal
             })
         })
     })
