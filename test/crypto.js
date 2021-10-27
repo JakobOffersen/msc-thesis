@@ -267,6 +267,122 @@ describe("Crypto.js", function() {
                 assert.isTrue(Buffer.compare(m, combined) === 0) // Buffer.compare returns 0 when the buffers are equal
             })
         })
+
+        describe("#sliceDecrypt(cipher, nonce, key, position, length", function() {
+            it("'position' is non-negative integer", function() {
+                const m = Buffer.from("message")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                assert.throws(() => crypto.sliceDecrypt(c, n, k, -1, 1))
+                assert.throws(() => crypto.sliceDecrypt(c, n, k, "0", 1))
+                assert.doesNotThrow(() => crypto.sliceDecrypt(c, n, k, 0, 1))
+            })
+
+            it("'length' is non-negative integer", function() {
+                const m = Buffer.from("message")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                assert.throws(() => crypto.sliceDecrypt(c, n, k, 0, -1))
+                assert.throws(() => crypto.sliceDecrypt(c, n, k, 0, "0"))
+                assert.doesNotThrow(() => crypto.sliceDecrypt(c, n, k, 0, 1))
+            })
+
+            it('slicing message from first block to end of last block', function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const decrypted = crypto.sliceDecrypt(c, n, k, 0, m.length)
+
+                assert.isTrue(Buffer.compare(m, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
+            })
+
+            it('slicing message from start of non-first block to end of last block', function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const startIndexOfBlock3 = 3 * crypto.STREAM_BLOCK_SIZE
+                const decrypted = crypto.sliceDecrypt(c, n, k, startIndexOfBlock3, m.length)
+                const sliced = m.slice(startIndexOfBlock3) // slices from 'startIndexOfBlock3' to end of 'm'
+
+                assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
+            })
+
+            it('slicing message from non-start of non-first block to end of last block', function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
+                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, m.length)
+                const sliced = m.slice(positionSomewhereInBlock3) // slices from 'positionSomewhereInBlock3' to end of 'm'
+
+                assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
+            })
+
+            it('slicing message from non-start of non-first block to (and including) end of non-last block', function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
+                const endPositionOfBlock6 = 6 * crypto.STREAM_BLOCK_SIZE + crypto.STREAM_BLOCK_SIZE - 1
+                const length = endPositionOfBlock6 - positionSomewhereInBlock3 + 1
+                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, length)
+                const sliced = m.slice(positionSomewhereInBlock3, endPositionOfBlock6 + 1) // add 1 to include 'endPositionOfBlock6'
+
+                assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
+            })
+
+            it('slicing message from non-start of non-first block to (and including) non-start of non-last block', function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
+                const positionSomewhereInBlock7 = 7 * crypto.STREAM_BLOCK_SIZE + 45
+                const length = positionSomewhereInBlock7 - positionSomewhereInBlock3 + 1
+                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, length)
+                const sliced = m.slice(positionSomewhereInBlock3, positionSomewhereInBlock7 + 1) // slices [positionSomewhereInBlock3, positionSomewhereInBlock7]
+                assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
+            })
+
+            it("requesting to slice longer than the message length returns only the original message", function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
+                const length = m.length + 100
+                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, length)
+                const sliced = m.slice(positionSomewhereInBlock3) // slices from 'positionSomewhereInBlock3' to end of 'm'
+                assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
+            })
+
+            it("requesting to slice longer than the original message returns only the original message", function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
+                const length = 400 // '400' is shorter than 'm.length' but 'positionSomewhereInBlock3' + 400 is longer than 'm.length' making it "overflow"
+                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, length)
+                const sliced = m.slice(positionSomewhereInBlock3) // slices from 'positionSomewhereInBlock3' to end of 'm'
+                assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
+            })
+        })
     })
 
     describe("Assymmetric Cryptography", function() {

@@ -1,5 +1,7 @@
 const sodium = require('sodium-native')
 
+const STREAM_BLOCK_SIZE = 64
+
 function makeNonce() {
     let nonce = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES)
     sodium.randombytes_buf(nonce)
@@ -72,6 +74,27 @@ function streamXOR(input, nonce, initializationCounter, key) {
     return res
 }
 
+function sliceDecrypt(cipher, nonce, key, position, length) {
+    if (!Number.isInteger(position)) throw new Error ("'position' must be integer but received " + position)
+    if (position < 0) throw new Error("'position' must be non-negative but received " + position)
+    if (!Number.isInteger(length)) throw new Error ("'length' must be integer but received " + length)
+    if (length < 0) throw new Error("'length' must be non-negative but received " + length)
+
+    const ic = Math.floor(position / STREAM_BLOCK_SIZE)             // the block containing 'position' (i.e the first block)
+    const blockCount = Math.floor(length / STREAM_BLOCK_SIZE) + 1   // the number of blocks to decrypt. 
+
+    const startPositionOfFirstBlock = ic * STREAM_BLOCK_SIZE
+    const endPositionOfLastBlock = Math.min((ic + blockCount) * STREAM_BLOCK_SIZE - 1, cipher.length - 1)
+
+    // Decrypt only the blocks containing the interval from 'position' and 'length' positions forwards.
+    const slice = cipher.slice(startPositionOfFirstBlock, endPositionOfLastBlock + 1) //  add 1 to 'end' since '.slice' to include last element
+    const decrypted = streamXOR(slice, nonce, ic, key)
+
+    // Return only the relevant interval of 'decrypted'
+    const startPosition = position % STREAM_BLOCK_SIZE
+    return decrypted.slice(startPosition, startPosition + length)
+}
+
 module.exports = {
     hash,
     makeNonce,
@@ -82,5 +105,7 @@ module.exports = {
     sign,
     verify,
     streamXOR,
-    SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES
+    sliceDecrypt,
+    SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES,
+    STREAM_BLOCK_SIZE: STREAM_BLOCK_SIZE,
 }
