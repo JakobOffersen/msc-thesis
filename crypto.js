@@ -74,7 +74,18 @@ function streamXOR(input, nonce, initializationCounter, key) {
     return res
 }
 
-function sliceDecrypt(cipher, nonce, key, position, length) {
+/**
+ * Decrypts a slice of 'cipher', which has been encrypted using 'nonce' and 'key' using XChaCha20.
+ * The slice starts at 'position' (is included) and ends 'length' elements later.
+ * If the slice exceeds 'cipher', the slice ends at the end of 'cipher'.
+ * @param {Buffer} cipher
+ * @param {Buffer} nonce
+ * @param {Buffer} key
+ * @param {int} position
+ * @param {int} length
+ * @returns {Buffer} the decrypted slice
+ */
+function decryptSlice(cipher, nonce, key, position, length) {
     if (!Number.isInteger(position)) throw new Error ("'position' must be integer but received " + position)
     if (position < 0) throw new Error("'position' must be non-negative but received " + position)
     if (!Number.isInteger(length)) throw new Error ("'length' must be integer but received " + length)
@@ -105,7 +116,7 @@ module.exports = {
     sign,
     verify,
     streamXOR,
-    sliceDecrypt,
+    sliceDecrypt: decryptSlice,
     SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES,
     STREAM_BLOCK_SIZE: STREAM_BLOCK_SIZE,
 }
