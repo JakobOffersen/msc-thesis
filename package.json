@@ -10,7 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "fuse-native": "agisboye/fuse-native#master",
+    "fuse-native": "agisboye/fuse-native#fix",
     "sodium-native": "^3.2.1"
   },
   "devDependencies": {
