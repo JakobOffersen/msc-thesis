@@ -74,7 +74,19 @@ function streamXOR(input, nonce, initializationCounter, key) {
     return res
 }
 
-function sliceDecrypt(cipher, nonce, key, position, length) {
+// - XChaCha20 crypt-streams. En/Decrypting streams using xchacha20. TODO: Refactor into own file
+/**
+ * Decrypts a slice of 'cipher', which has been encrypted using 'nonce' and 'key' using XChaCha20.
+ * The slice starts at 'position' (is included) and ends 'length' elements later.
+ * If the slice exceeds 'cipher', the slice ends at the end of 'cipher'.
+ * @param {Buffer} cipher
+ * @param {Buffer} nonce
+ * @param {Buffer} key
+ * @param {int} position
+ * @param {int} length
+ * @returns {Buffer} the decrypted slice
+ */
+function decryptSlice(cipher, nonce, key, position, length) {
     if (!Number.isInteger(position)) throw new Error ("'position' must be integer but received " + position)
     if (position < 0) throw new Error("'position' must be non-negative but received " + position)
     if (!Number.isInteger(length)) throw new Error ("'length' must be integer but received " + length)
@@ -84,7 +96,10 @@ function sliceDecrypt(cipher, nonce, key, position, length) {
     const blockCount = Math.floor(length / STREAM_BLOCK_SIZE) + 1   // the number of blocks to decrypt.
 
     const startPositionOfFirstBlock = ic * STREAM_BLOCK_SIZE
-    const endPositionOfLastBlock = Math.min((ic + blockCount) * STREAM_BLOCK_SIZE - 1, cipher.length - 1)
+    const endPositionOfLastBlock = Math.min( // The end position can at most be the index of the last element in 'cipher'.
+        (ic + blockCount) * STREAM_BLOCK_SIZE - 1,
+        cipher.length - 1
+    )
 
     // Decrypt only the blocks containing the interval from 'position' and 'length' positions forwards.
     const slice = cipher.slice(startPositionOfFirstBlock, endPositionOfLastBlock + 1) //  add 1 to 'end' since '.slice' to include last element
@@ -94,6 +109,47 @@ function sliceDecrypt(cipher, nonce, key, position, length) {
     const startPosition = position % STREAM_BLOCK_SIZE
     return decrypted.slice(startPosition, startPosition + length)
 }
+
+function encryptSlice(cipher, nonce, key, buffer, position, length) {
+    if (!Number.isInteger(position)) throw new Error("position must be integer but received " + typeof(position))
+    if (position < 0) throw new Error("'position' must be non-negagive, but received " + position)
+    if (position > cipher.length) throw new Error("'position' must be greater or less than cipher.length but received " + position)
+    if (!Number.isInteger(length)) throw new Error("length must be integer but received " + typeof(length))
+    if (length < 0) throw new Error("'length' must be non-negagive, but received " + length)
+
+    // Compute the version of 'ic' for the underlying xor-stream used to encrypt 'cipher' up until 'position'. This assumes ic started at 0
+    const ic = Math.floor(position / STREAM_BLOCK_SIZE)
+
+    // There are 2 possible scenarios for 'position':
+    // #1: 'position' points to right after the entire 'cipher'. This means appending 'buffer' to 'cipher'
+    // #2: 'position' points inside of an existing block, B. B can be already used or it can be partially used, if it is the last block of 'cipher'.
+    //      In both cases, we need to perform the following steps:
+    //      1) Slice and decrypt B and all blocks coming after B. This is necessary since all aftercoming blocks should be re-encrypted under a new 'ic'
+    //      2) Inject the incoming buffer inbetween B and the aftercoming blocks
+    //      3) Encrypt B + buffer + remaining blocks starting with 'ic' for B.
+    //      4) Concat all the pieces together
+
+    const startPositionOfBlockContainingPosition = ic * STREAM_BLOCK_SIZE
+    const cipherSliceUpToBlockContainingPosition = cipher.slice(0, startPositionOfBlockContainingPosition)
+    const cipherSliceFromBlockContainingPosition = cipher.slice(startPositionOfBlockContainingPosition)
+    const decryptedStreamStartingFromBlockContainingPosition = streamXOR(cipherSliceFromBlockContainingPosition, nonce, ic, key)
+
+    // Split the block containing 'position' into two slices: [0, position[ (denoted blockPre) and [position, end-of-block] (denoted blockPost)
+    const blockPre  = decryptedStreamStartingFromBlockContainingPosition.slice(0, position % STREAM_BLOCK_SIZE)
+    const blockPost = decryptedStreamStartingFromBlockContainingPosition.slice(position % STREAM_BLOCK_SIZE, STREAM_BLOCK_SIZE)
+    const remainingBlocks = decryptedStreamStartingFromBlockContainingPosition.slice(STREAM_BLOCK_SIZE)
+
+    // Inject the prefix of length 'length' of 'buffer' between 'blockPre' and 'blockPost' followed by remaining blocks
+    const bufferPrefix = buffer.slice(0, length)
+    const combinedPlainBlocks = Buffer.concat([blockPre, bufferPrefix, blockPost, remainingBlocks])
+
+    // Re-encrypt 'combinedPlainBlocks'
+    const cipherTail = streamXOR(combinedPlainBlocks, nonce, ic, key)
+    const combined = Buffer.concat([cipherSliceUpToBlockContainingPosition, cipherTail])
+    return combined
+}
+
+
 
 module.exports = {
     hash,
@@ -105,7 +161,8 @@ module.exports = {
     sign,
     verify,
     streamXOR,
-    sliceDecrypt,
+    decryptSlice: decryptSlice,
+    encryptSlice: encryptSlice,
     SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES,
     STREAM_BLOCK_SIZE: STREAM_BLOCK_SIZE,
 }
