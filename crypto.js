@@ -113,8 +113,10 @@ function decryptSlice(cipher, nonce, key, position, length) {
 function encryptSlice(cipher, nonce, key, buffer, position, length) {
     if (!Number.isInteger(position)) throw new Error("position must be integer but received " + typeof(position))
     if (position < 0) throw new Error("'position' must be non-negagive, but received " + position)
+    if (position > cipher.length) throw new Error("'position' must be greater or less than cipher.length but received " + position)
     if (!Number.isInteger(length)) throw new Error("length must be integer but received " + typeof(length))
     if (length < 0) throw new Error("'length' must be non-negagive, but received " + length)
+
     // Compute the version of 'ic' for the underlying xor-stream used to encrypt 'cipher' up until 'position'. This assumes ic started at 0
     const ic = Math.floor(position / STREAM_BLOCK_SIZE)
 
