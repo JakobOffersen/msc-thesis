@@ -95,7 +95,10 @@ function decryptSlice(cipher, nonce, key, position, length) {
     const blockCount = Math.floor(length / STREAM_BLOCK_SIZE) + 1   // the number of blocks to decrypt.
 
     const startPositionOfFirstBlock = ic * STREAM_BLOCK_SIZE
-    const endPositionOfLastBlock = Math.min((ic + blockCount) * STREAM_BLOCK_SIZE - 1, cipher.length - 1)
+    const endPositionOfLastBlock = Math.min( // The end position can at most be the index of the last element in 'cipher'.
+        (ic + blockCount) * STREAM_BLOCK_SIZE - 1,
+        cipher.length - 1
+    )
 
     // Decrypt only the blocks containing the interval from 'position' and 'length' positions forwards.
     const slice = cipher.slice(startPositionOfFirstBlock, endPositionOfLastBlock + 1) //  add 1 to 'end' since '.slice' to include last element
