@@ -74,6 +74,7 @@ function streamXOR(input, nonce, initializationCounter, key) {
     return res
 }
 
+// - XChaCha20 crypt-streams. En/Decrypting streams using xchacha20. TODO: Refactor into own file
 /**
  * Decrypts a slice of 'cipher', which has been encrypted using 'nonce' and 'key' using XChaCha20.
  * The slice starts at 'position' (is included) and ends 'length' elements later.
@@ -109,6 +110,26 @@ function decryptSlice(cipher, nonce, key, position, length) {
     return decrypted.slice(startPosition, startPosition + length)
 }
 
+function encryptSlice(cipher, nonce, key, buffer, position, length) {
+    // Compute the current version of 'ic' for the underlying xor-stream used to encrypt 'cipher'. This assumes ic started at 0
+    const ic = Math.floor(cipher.length / STREAM_BLOCK_SIZE)
+
+    // The last block of 'cipher' may not be filled. To fill it with 'buffer' we need to
+    // 1) Slice and decrypt the last block
+    // 2) Append the incoming buffer to the last block
+    // 3) Encrypt the lastblock + 'buffer' starting with 'ic' for the last block.
+    // 4) Combine the remaining cipher' with the encrypted last-block + 'buffer'
+    const lastCipherBlock = cipher.slice(ic * STREAM_BLOCK_SIZE)        // step 1)
+    const plainLastBlock = streamXOR(lastCipherBlock, nonce, ic, key)   // step 1)
+    const appendedPlain = Buffer.concat([plainLastBlock, buffer])       // step 2)
+    const encrypted = streamXOR(appendedPlain, nonce, ic, key)          // step 3)
+    const remainingCipher = cipher.slice(0, ic * STREAM_BLOCK_SIZE)     // step 4)
+    const combinedCipher = Buffer.concat([remainingCipher, encrypted])  // step 4)
+    return combinedCipher
+}
+
+
+
 module.exports = {
     hash,
     makeNonce,
@@ -119,7 +140,8 @@ module.exports = {
     sign,
     verify,
     streamXOR,
-    sliceDecrypt: decryptSlice,
+    decryptSlice: decryptSlice,
+    encryptSlice: encryptSlice,
     SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES,
     STREAM_BLOCK_SIZE: STREAM_BLOCK_SIZE,
 }

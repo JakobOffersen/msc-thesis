@@ -268,16 +268,16 @@ describe("Crypto.js", function() {
             })
         })
 
-        describe("#sliceDecrypt(cipher, nonce, key, position, length", function() {
+        describe("#decryptSlice(cipher, nonce, key, position, length)", function() {
             it("'position' is non-negative integer", function() {
                 const m = Buffer.from("message")
                 const n = crypto.makeNonce()
                 const k = crypto.makeSymmetricKey()
                 const c = crypto.streamXOR(m, n, 0, k)
 
-                assert.throws(() => crypto.sliceDecrypt(c, n, k, -1, 1))
-                assert.throws(() => crypto.sliceDecrypt(c, n, k, "0", 1))
-                assert.doesNotThrow(() => crypto.sliceDecrypt(c, n, k, 0, 1))
+                assert.throws(() => crypto.decryptSlice(c, n, k, -1, 1))
+                assert.throws(() => crypto.decryptSlice(c, n, k, "0", 1))
+                assert.doesNotThrow(() => crypto.decryptSlice(c, n, k, 0, 1))
             })
 
             it("'length' is non-negative integer", function() {
@@ -286,9 +286,9 @@ describe("Crypto.js", function() {
                 const k = crypto.makeSymmetricKey()
                 const c = crypto.streamXOR(m, n, 0, k)
 
-                assert.throws(() => crypto.sliceDecrypt(c, n, k, 0, -1))
-                assert.throws(() => crypto.sliceDecrypt(c, n, k, 0, "0"))
-                assert.doesNotThrow(() => crypto.sliceDecrypt(c, n, k, 0, 1))
+                assert.throws(() => crypto.decryptSlice(c, n, k, 0, -1))
+                assert.throws(() => crypto.decryptSlice(c, n, k, 0, "0"))
+                assert.doesNotThrow(() => crypto.decryptSlice(c, n, k, 0, 1))
             })
 
             it('slicing message from first block to end of last block', function() {
@@ -297,7 +297,7 @@ describe("Crypto.js", function() {
                 const k = crypto.makeSymmetricKey()
                 const c = crypto.streamXOR(m, n, 0, k)
 
-                const decrypted = crypto.sliceDecrypt(c, n, k, 0, m.length)
+                const decrypted = crypto.decryptSlice(c, n, k, 0, m.length)
 
                 assert.isTrue(Buffer.compare(m, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
             })
@@ -309,7 +309,7 @@ describe("Crypto.js", function() {
                 const c = crypto.streamXOR(m, n, 0, k)
 
                 const startIndexOfBlock3 = 3 * crypto.STREAM_BLOCK_SIZE
-                const decrypted = crypto.sliceDecrypt(c, n, k, startIndexOfBlock3, m.length)
+                const decrypted = crypto.decryptSlice(c, n, k, startIndexOfBlock3, m.length)
                 const sliced = m.slice(startIndexOfBlock3) // slices from 'startIndexOfBlock3' to end of 'm'
 
                 assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
@@ -322,7 +322,7 @@ describe("Crypto.js", function() {
                 const c = crypto.streamXOR(m, n, 0, k)
 
                 const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
-                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, m.length)
+                const decrypted = crypto.decryptSlice(c, n, k, positionSomewhereInBlock3, m.length)
                 const sliced = m.slice(positionSomewhereInBlock3) // slices from 'positionSomewhereInBlock3' to end of 'm'
 
                 assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
@@ -337,7 +337,7 @@ describe("Crypto.js", function() {
                 const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
                 const endPositionOfBlock6 = 6 * crypto.STREAM_BLOCK_SIZE + crypto.STREAM_BLOCK_SIZE - 1
                 const length = endPositionOfBlock6 - positionSomewhereInBlock3 + 1
-                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, length)
+                const decrypted = crypto.decryptSlice(c, n, k, positionSomewhereInBlock3, length)
                 const sliced = m.slice(positionSomewhereInBlock3, endPositionOfBlock6 + 1) // add 1 to include 'endPositionOfBlock6'
 
                 assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
@@ -352,7 +352,7 @@ describe("Crypto.js", function() {
                 const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
                 const positionSomewhereInBlock7 = 7 * crypto.STREAM_BLOCK_SIZE + 45
                 const length = positionSomewhereInBlock7 - positionSomewhereInBlock3 + 1
-                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, length)
+                const decrypted = crypto.decryptSlice(c, n, k, positionSomewhereInBlock3, length)
                 const sliced = m.slice(positionSomewhereInBlock3, positionSomewhereInBlock7 + 1) // slices [positionSomewhereInBlock3, positionSomewhereInBlock7]
                 assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
             })
@@ -365,7 +365,7 @@ describe("Crypto.js", function() {
 
                 const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
                 const length = m.length + 100
-                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, length)
+                const decrypted = crypto.decryptSlice(c, n, k, positionSomewhereInBlock3, length)
                 const sliced = m.slice(positionSomewhereInBlock3) // slices from 'positionSomewhereInBlock3' to end of 'm'
                 assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
             })
@@ -378,9 +378,60 @@ describe("Crypto.js", function() {
 
                 const positionSomewhereInBlock3 = 3 * crypto.STREAM_BLOCK_SIZE + 7
                 const length = 400 // '400' is shorter than 'm.length' but 'positionSomewhereInBlock3' + 400 is longer than 'm.length' making it "overflow"
-                const decrypted = crypto.sliceDecrypt(c, n, k, positionSomewhereInBlock3, length)
+                const decrypted = crypto.decryptSlice(c, n, k, positionSomewhereInBlock3, length)
                 const sliced = m.slice(positionSomewhereInBlock3) // slices from 'positionSomewhereInBlock3' to end of 'm'
                 assert.isTrue(Buffer.compare(sliced, decrypted) == 0) // Buffer.compare returns 0 when the buffers are equal
+            })
+        })
+
+        describe("#encryptSlice(cipher, nonce, key, buffer, position, length)", function() {
+            it("'buffer' is Buffer with at least 'length' elements", function() {
+                //TODO: Implement
+            })
+
+            it("'position' is non-negative integer", function() {
+                //TODO: Implement
+            })
+
+            it("'length is non-negative integer'", function() {
+                //TODO: Implement
+            })
+
+            it("returns type Buffer", function() {
+                //TODO: Implement
+            })
+
+            it("appending 'buffer' (arbitrary length) to 'cipher' (arbitrary length) yields an extended cipher encrypted using 'key' and 'nonce'", function() {
+                // Setup the initial cipher
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                // Append buffer to cipher. I.e first element of 'buffer' should appear as element right after the last element of the cipher (c.length)
+                const buffer = Buffer.from("Contrary to popular belief, Lorem Ipsum is not simply random text. It has roots in a piece of classical Latin literature from 45 BC, making it over 2000 years old. Richard McClintock, a Latin professor at Hampden-Sydney College in Virginia, looked up one of the more obscure Latin words, consectetur, from a Lorem Ipsum passage, and going through the cites of the word in classical literature, discovered the undoubtable source. Lorem Ipsum comes from sections 1.10.32 and 1.10.33 of de Finibus Bonorum et Malorum (The Extremes of Good and Evil) by Cicero, written in 45 BC. This book is a treatise on the theory of ethics, very popular during the Renaissance. The first line of Lorem Ipsum, Lorem ipsum dolor sit amet.., comes from a line in section 1.10.32.")
+                const updatedCipher = crypto.encryptSlice(c, n, k, buffer, c.length, buffer.length)
+
+                // Verify that decrypting 'updatedCipher' yields the original message ('m') appended by the buffer
+                const decrypted = crypto.decryptSlice(updatedCipher, n, k, 0, updatedCipher.length)
+                const combinedPlain = Buffer.concat([m, buffer])
+                assert.isTrue(Buffer.compare(decrypted, combinedPlain) === 0) // .compare returns 0 when the two buffers are equal
+            })
+
+            it("appending 'buffer' (1 block length) to 'cipher' (1 block length) yields an extended cipher encrypted using 'key' and 'nonce'", function() {
+                const m = Buffer.alloc(64, "filling for one block")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                // Append buffer to cipher. I.e first element of 'buffer' should appear as element right after the last element of the cipher (c.length)
+                const buffer = Buffer.alloc(64, "filling for the next block to be appended")
+                const updatedCipher = crypto.encryptSlice(c, n, k, buffer, c.length, buffer.length)
+
+                // Verify that decrypting 'updatedCipher' yields the original message ('m') appended by the buffer
+                const decrypted = crypto.decryptSlice(updatedCipher, n, k, 0, updatedCipher.length)
+                const combinedPlain = Buffer.concat([m, buffer])
+                assert.isTrue(Buffer.compare(decrypted, combinedPlain) === 0) // .compare returns 0 when the two buffers are equal
             })
         })
     })
