@@ -81,7 +81,7 @@ function sliceDecrypt(cipher, nonce, key, position, length) {
     if (length < 0) throw new Error("'length' must be non-negative but received " + length)
 
     const ic = Math.floor(position / STREAM_BLOCK_SIZE)             // the block containing 'position' (i.e the first block)
-    const blockCount = Math.floor(length / STREAM_BLOCK_SIZE) + 1   // the number of blocks to decrypt. 
+    const blockCount = Math.floor(length / STREAM_BLOCK_SIZE) + 1   // the number of blocks to decrypt.
 
     const startPositionOfFirstBlock = ic * STREAM_BLOCK_SIZE
     const endPositionOfLastBlock = Math.min((ic + blockCount) * STREAM_BLOCK_SIZE - 1, cipher.length - 1)
@@ -90,7 +90,7 @@ function sliceDecrypt(cipher, nonce, key, position, length) {
     const slice = cipher.slice(startPositionOfFirstBlock, endPositionOfLastBlock + 1) //  add 1 to 'end' since '.slice' to include last element
     const decrypted = streamXOR(slice, nonce, ic, key)
 
-    // Return only the relevant interval of 'decrypted'
+    // Return only the relevant interval of 'decrypted' by offsetting
     const startPosition = position % STREAM_BLOCK_SIZE
     return decrypted.slice(startPosition, startPosition + length)
 }
