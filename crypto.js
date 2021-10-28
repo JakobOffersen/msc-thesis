@@ -139,8 +139,9 @@ function encryptSlice(cipher, nonce, key, buffer, position, length) {
     const blockPost = decryptedStreamStartingFromBlockContainingPosition.slice(position % STREAM_BLOCK_SIZE, STREAM_BLOCK_SIZE)
     const remainingBlocks = decryptedStreamStartingFromBlockContainingPosition.slice(STREAM_BLOCK_SIZE)
 
-    // Inject 'buffer' between 'blockPre' and 'blockPost' followed by remaining blocks
-    const combinedPlainBlocks = Buffer.concat([blockPre, buffer, blockPost, remainingBlocks])
+    // Inject the prefix of length 'length' of 'buffer' between 'blockPre' and 'blockPost' followed by remaining blocks
+    const bufferPrefix = buffer.slice(0, length)
+    const combinedPlainBlocks = Buffer.concat([blockPre, bufferPrefix, blockPost, remainingBlocks])
 
     // Re-encrypt 'combinedPlainBlocks'
     const cipherTail = streamXOR(combinedPlainBlocks, nonce, ic, key)

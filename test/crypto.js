@@ -515,11 +515,10 @@ describe("Crypto.js", function() {
                 const mPost = m.slice(position)
                 const expected = Buffer.concat([mPre, buffer, mPost])
 
-
                 assert.isTrue(Buffer.compare(decrypted, expected) === 0) // .compare returns 0 when buffers are equal
             })
 
-            it("injecting buffer between two blocks", function() {
+            it("injecting buffer between two blocks in cipher", function() {
                 const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
                 const n = crypto.makeNonce()
                 const k = crypto.makeSymmetricKey()
@@ -536,6 +535,26 @@ describe("Crypto.js", function() {
                 const mPost = m.slice(position)
                 const expected = Buffer.concat([mPre, buffer, mPost])
 
+                assert.isTrue(Buffer.compare(decrypted, expected) === 0) // .compare returns 0 when buffers are equal
+            })
+
+            it("injecting part of buffer in cipher at arbitrary position", function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const position = 203
+                const length = 199
+                // Inject arbitrary prefix of buffer to cipher at arbitrary position
+                const buffer = Buffer.from("Contrary to popular belief, Lorem Ipsum is not simply random text. It has roots in a piece of classical Latin literature from 45 BC, making it over 2000 years old. Richard McClintock, a Latin professor at Hampden-Sydney College in Virginia, looked up one of the more obscure Latin words, consectetur, from a Lorem Ipsum passage, and going through the cites of the word in classical literature, discovered the undoubtable source. Lorem Ipsum comes from sections 1.10.32 and 1.10.33 of de Finibus Bonorum et Malorum (The Extremes of Good and Evil) by Cicero, written in 45 BC. This book is a treatise on the theory of ethics, very popular during the Renaissance. The first line of Lorem Ipsum, Lorem ipsum dolor sit amet.., comes from a line in section 1.10.32.")
+                const updatedCipher = crypto.encryptSlice(c, n, k, buffer, position, length)
+
+                const decrypted = crypto.decryptSlice(updatedCipher, n, k, 0, updatedCipher.length)
+
+                const mPre  = m.slice(0, position)
+                const mPost = m.slice(position)
+                const expected = Buffer.concat([mPre, buffer.slice(0, length), mPost])
 
                 assert.isTrue(Buffer.compare(decrypted, expected) === 0) // .compare returns 0 when buffers are equal
             })
