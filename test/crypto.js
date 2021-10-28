@@ -386,19 +386,50 @@ describe("Crypto.js", function() {
 
         describe("#encryptSlice(cipher, nonce, key, buffer, position, length)", function() {
             it("'buffer' is Buffer with at least 'length' elements", function() {
-                //TODO: Implement
+                const m = Buffer.from("hello world")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const b = Buffer.from("buffer")
+
+                assert.doesNotThrow(() => crypto.encryptSlice(c, n, k, b, 0, b.length))
+                assert.throws(() => crypto.encryptSlice(c, n, k, "string", 0, "string".length))
             })
 
             it("'position' is non-negative integer", function() {
-                //TODO: Implement
+                const m = Buffer.from("hello world")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+                const b = Buffer.from("buffer")
+
+                assert.doesNotThrow(() => crypto.encryptSlice(c, n, k, b, 0, b.length))
+                assert.throws(() => crypto.encryptSlice(c, n, k, b, -1, b.length))
+                assert.throws(() => crypto.encryptSlice(c, n, k, b, "2", b.length))
             })
 
             it("'length is non-negative integer'", function() {
-                //TODO: Implement
+                const m = Buffer.from("hello world")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+                const b = Buffer.from("buffer")
+
+                assert.doesNotThrow(() => crypto.encryptSlice(c, n, k, b, 0, b.length))
+                assert.throws(() => crypto.encryptSlice(c, n, k, b, 0, -1))
+                assert.throws(() => crypto.encryptSlice(c, n, k, b, 0, "2"))
             })
 
             it("returns type Buffer", function() {
-                //TODO: Implement
+                const m = Buffer.from("hello world")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+                const b = Buffer.from("buffer")
+                const res = crypto.encryptSlice(c, n, k, b, 0, b.length)
+
+                assert.isTrue(Buffer.isBuffer(res))
             })
 
             it("appending 'buffer' (arbitrary length) to 'cipher' (arbitrary length) yields an extended cipher encrypted using 'key' and 'nonce'", function() {
@@ -432,6 +463,33 @@ describe("Crypto.js", function() {
                 const decrypted = crypto.decryptSlice(updatedCipher, n, k, 0, updatedCipher.length)
                 const combinedPlain = Buffer.concat([m, buffer])
                 assert.isTrue(Buffer.compare(decrypted, combinedPlain) === 0) // .compare returns 0 when the two buffers are equal
+            })
+
+            it("appending buffer with arbitrary length into cipher with arbitrary length at arbitrary position", function() {
+                const m = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+                const n = crypto.makeNonce()
+                const k = crypto.makeSymmetricKey()
+                const c = crypto.streamXOR(m, n, 0, k)
+
+                const position = 473
+                // Inject buffer to cipher at arbitrary position.
+                const buffer = Buffer.from("Contrary to popular belief, Lorem Ipsum is not simply random text. It has roots in a piece of classical Latin literature from 45 BC, making it over 2000 years old. Richard McClintock, a Latin professor at Hampden-Sydney College in Virginia, looked up one of the more obscure Latin words, consectetur, from a Lorem Ipsum passage, and going through the cites of the word in classical literature, discovered the undoubtable source. Lorem Ipsum comes from sections 1.10.32 and 1.10.33 of de Finibus Bonorum et Malorum (The Extremes of Good and Evil) by Cicero, written in 45 BC. This book is a treatise on the theory of ethics, very popular during the Renaissance. The first line of Lorem Ipsum, Lorem ipsum dolor sit amet.., comes from a line in section 1.10.32.")
+                const updatedCipher = crypto.encryptSlice(c, n, k, buffer, position, buffer.length)
+
+                const decrypted = crypto.decryptSlice(updatedCipher, n, k, 0, updatedCipher.length)
+
+                const mPre  = m.slice(0, position)
+                const mPost = m.slice(position)
+                const expected = Buffer.concat([mPre, buffer, mPost])
+
+                console.dir(m.toString('utf-8'), {maxArrayLength: null})
+                console.log("-")
+                console.dir(buffer.toString('utf-8'), {maxArrayLength: null})
+                console.log("-")
+                console.dir(decrypted.toString('utf-8'), {maxArrayLength: null})
+
+
+                assert.isTrue(Buffer.compare(decrypted, expected) === 0) // .compare returns 0 when buffers are equal
             })
         })
     })
