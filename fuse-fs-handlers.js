@@ -1,5 +1,4 @@
 const fs = require('fs')
-const path = require('path')
 
 const handlers = {
     init(cb) {},
@@ -158,17 +157,9 @@ const handlers = {
         })
     },
 
-    utimens(path, atime, mtime, cb) {
-
-    },
-
-    unlink(path, cb) {
-
-    },
-
-    rename(src, dest, cb) {
-
-    },
+    utimens(path, atime, mtime, cb) {},
+    unlink(path, cb) {},
+    rename(src, dest, cb) {},
 
     link(src, dest, cb) {
         fs.link(src, dest, (err) => {
