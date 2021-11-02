@@ -131,30 +131,42 @@ const handlers = {
     },
 
     // write content into 'buffer' to be read by the caller
-    // https://nodejs.org/api/fs.html#fscreatewritestreampath-options
     // TODO: Optimization: Instead of creating the readstream at each call, only open the file once and close when the end of the file is reached
     // TODO: Does the readstream close itself when the end its end is reached?
     read: function (path, fd, buffer, length, position, cb) {
         fs.stat(path, (err, stats) => {
             if (err) return cb(0) // Error occured. Mark file as read //TODO: Use proper error code?
-            if (position >= stats.size - crypto.NONCE_LENGTH) return cb(0) // reached end of file. Mark read completed
 
-            const readStream = fs.createReadStream(path, { start: position, end: position + length + crypto.NONCE_LENGTH }) // 'end' is inclusive => should it be 'position + length - 1' instead?
+            // Check if caller tries to read from a position after the file content.
+            // Note that 'stats.size' includes the prepended buffer. Must be subtracted.
+            if (position >= stats.size - crypto.NONCE_LENGTH) return cb(0) // Reached end of file. Mark read completed
+
+            // Read out the nonce of the file.
+            const nonceReadStream = fs.createReadStream(path, {start: 0, end: crypto.NONCE_LENGTH })
+
             // Wait for the stream to be readable, otherwise '.read' is invalid.
-            readStream.on('readable', () => {
-                // 'content' may be shorter than 'length' when near the end of the stream.
-                // The stream returns 'null' when the end is reached
-                const nonceAndCipher = readStream.read(crypto.NONCE_LENGTH + length) // add 'NONCE_LENGTH' to also read the nonce that has been prepended to the cipher
-                if (!nonceAndCipher || nonceAndCipher.length === 0) return cb(0) // end of file reached
+            nonceReadStream.on('readable', () => {
+                const nonce = nonceReadStream.read(crypto.NONCE_LENGTH)
+                nonceReadStream.close() // close stream to ensure on('readable') is not called multiple times
+                if (!nonce || nonce.length !== crypto.NONCE_LENGTH) return cb(0) // An error ocured. Mark 0 bytes written to 'buffer'
 
-                const { nonce, cipher } = crypto.splitNonceAndCipher(nonceAndCipher)
+                // Read out the cipher of the file.
+                // Note that we need to offset the slice of the readstream due to the prepended nonce.
+                const cipherReadStream = fs.createReadStream(path, { start: position + crypto.NONCE_LENGTH, end: position + length + crypto.NONCE_LENGTH })
+                cipherReadStream.on('readable', () => {
+                    // 'content' may be shorter than 'length' when near the end of the stream.
+                    // The stream returns 'null' when the end is reached
+                    const cipher = cipherReadStream.read(length)
+                    cipherReadStream.close() // close stream to ensure on('readable') is not called multiple times
+                    if (!cipher || cipher.length === 0) return cb(0) // end of file reached
 
-                // Decrypt the file-content
-                const key = keyProvider.getKeyForPath(path)
-                const plain = crypto.decryptSlice(cipher, nonce, key, position, length)
-                readStream.close()
-                plain.copy(buffer) // copy 'plain' into buffer
-                cb(plain.length) // return number of bytes written to 'buffer'
+                    // Decrypt the file-content
+                    const key = keyProvider.getKeyForPath(path)
+                    const plain = crypto.decryptSlice(cipher, nonce, key, position, length)
+
+                    plain.copy(buffer) // copy 'plain' into buffer
+                    cb(plain.length) // return number of bytes written to 'buffer'
+                })
             })
         })
     },
