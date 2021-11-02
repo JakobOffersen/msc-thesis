@@ -19,6 +19,19 @@ function insertInto(source, target, position, length) {
     return Buffer.concat([headSlice, truncatedTarget, tailSlice])
 }
 
+function readNonceAtPath(path, cb) {
+    // Read out the nonce of the file.
+    const nonceReadStream = fs.createReadStream(path, {start: 0, end: crypto.NONCE_LENGTH })
+
+    // Wait for the stream to be readable, otherwise '.read' is invalid.
+    nonceReadStream.on('readable', () => {
+        const nonce = nonceReadStream.read(crypto.NONCE_LENGTH)
+        nonceReadStream.close() // close stream to ensure on('readable') is not called multiple times
+        if (!nonce || nonce.length !== crypto.NONCE_LENGTH) cb(null) // An error occured.
+        else cb(nonce)
+    })
+}
+
 const keyProvider = new KeyProvider()
 
 const handlers = {
@@ -141,15 +154,10 @@ const handlers = {
             // Note that 'stats.size' includes the prepended buffer. Must be subtracted.
             if (position >= stats.size - crypto.NONCE_LENGTH) return cb(0) // Reached end of file. Mark read completed
 
-            // Read out the nonce of the file.
-            const nonceReadStream = fs.createReadStream(path, {start: 0, end: crypto.NONCE_LENGTH })
+            readNonceAtPath(path, (nonce) => {
+                if (!nonce) return cb(0) // An error occured. Mark 0 bytes written to 'buffer'
 
-            // Wait for the stream to be readable, otherwise '.read' is invalid.
-            nonceReadStream.on('readable', () => {
-                const nonce = nonceReadStream.read(crypto.NONCE_LENGTH)
-                nonceReadStream.close() // close stream to ensure on('readable') is not called multiple times
-                if (!nonce || nonce.length !== crypto.NONCE_LENGTH) return cb(0) // An error ocured. Mark 0 bytes written to 'buffer'
-
+                // Wait for the stream to be readable, otherwise '.read' is invalid.
                 // Read out the cipher of the file.
                 // Note that we need to offset the slice of the readstream due to the prepended nonce.
                 const cipherReadStream = fs.createReadStream(path, { start: position + crypto.NONCE_LENGTH, end: position + length + crypto.NONCE_LENGTH })
