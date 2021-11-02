@@ -96,8 +96,37 @@ describe("fuse-crypto-handlers.js", function() {
                     done()
                 })
             })
-
         })
+    })
 
+    it("Writing to arbitrary position in existing file and then reading arbitrary slice of it", function(done) {
+        const initialContent = Buffer.from("Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.")
+        const contentToBeWritten = Buffer.from("Contrary to popular belief, Lorem Ipsum is not simply random text. It has roots in a piece of classical Latin literature from 45 BC, making it over 2000 years old. Richard McClintock, a Latin professor at Hampden-Sydney College in Virginia, looked up one of the more obscure Latin words, consectetur, from a Lorem Ipsum passage, and going through the cites of the word in classical literature, discovered the undoubtable source. Lorem Ipsum comes from sections 1.10.32 and 1.10.33 of de Finibus Bonorum et Malorum (The Extremes of Good and Evil) by Cicero, written in 45 BC. This book is a treatise on the theory of ethics, very popular during the Renaissance. The first line of Lorem Ipsum, Lorem ipsum dolor sit amet.., comes from a line in section 1.10.32.")
+        const writePosition = 93
+        const readPosition = 77
+        const readLength = 496
+
+        // write the initial content
+        handlers.write(path, "fd", initialContent, initialContent.length, 0, (length) => {
+            assert.isTrue(length === initialContent.length)
+
+            handlers.write(path, "fd", contentToBeWritten, contentToBeWritten.length, writePosition, (length) => {
+                assert.isTrue(length === contentToBeWritten.length)
+
+                const readBuffer = Buffer.alloc(readLength)
+                handlers.read(path, "fd", readBuffer, readBuffer.length, readPosition, (length) => {
+                    assert.isTrue(readBuffer.length === length)
+
+                    // compute the expected result
+                    const initialContentHeadSlice = initialContent.slice(0, writePosition)
+                    const initialContentTailSlice = initialContent.slice(writePosition)
+                    const expectedFileContent =  Buffer.concat([initialContentHeadSlice, contentToBeWritten, initialContentTailSlice])
+                    const expectedRead = expectedFileContent.slice(readPosition, readPosition + length)
+
+                    assert.isTrue(Buffer.compare(expectedRead, readBuffer) === 0) // .compare returns 0 when the two buffers are equal
+                    done()
+                })
+            })
+        })
     })
 })
