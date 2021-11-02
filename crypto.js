@@ -119,6 +119,19 @@ function decryptSlice(cipher, nonce, key, position, length) {
     return decrypted.slice(startPosition, startPosition + length)
 }
 
+function decryptSlice2(cipher, nonce, key, position, length) {
+    if (!Number.isInteger(position)) throw new Error ("'position' must be integer but received " + position)
+    if (position < 0) throw new Error("'position' must be non-negative but received " + position)
+    if (!Number.isInteger(length)) throw new Error ("'length' must be integer but received " + length)
+    if (length < 0) throw new Error("'length' must be non-negative but received " + length)
+
+    const ic = Math.floor(position / STREAM_BLOCK_SIZE)
+    const decrypted = streamXOR(cipher, nonce, ic, key)
+    const startPosition = position % STREAM_BLOCK_SIZE
+
+    return decrypted.slice(startPosition, startPosition + length)
+}
+
 /**
  * Encrypts 'buffer' using 'key' and 'nonce' and inserts it into 'cipher'
  * at [position, position + length] and "pushes" the tail of further back in the buffer.
@@ -182,8 +195,9 @@ module.exports = {
     verify,
     streamXOR,
     splitNonceAndCipher,
-    decryptSlice: decryptSlice,
-    encryptSlice: encryptSlice,
+    decryptSlice,
+    decryptSlice2,
+    encryptSlice,
     SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES,
     STREAM_BLOCK_SIZE: STREAM_BLOCK_SIZE,
     NONCE_LENGTH: sodium.crypto_secretbox_NONCEBYTES

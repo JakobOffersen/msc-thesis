@@ -157,20 +157,26 @@ const handlers = {
             readNonceAtPath(path, (nonce) => {
                 if (!nonce) return cb(0) // An error occured. Mark 0 bytes written to 'buffer'
 
-                // Wait for the stream to be readable, otherwise '.read' is invalid.
-                // Read out the cipher of the file.
                 // Note that we need to offset the slice of the readstream due to the prepended nonce.
-                const cipherReadStream = fs.createReadStream(path, { start: position + crypto.NONCE_LENGTH, end: position + length + crypto.NONCE_LENGTH })
+                const firstBlockOffset = position % crypto.STREAM_BLOCK_SIZE //TODO: add docu here
+
+                const opts = {
+                    start: crypto.NONCE_LENGTH + position - firstBlockOffset, // TODO: Add docu for offset-subtraction
+                    end:   crypto.NONCE_LENGTH + position + firstBlockOffset + length // TODO: Add docu for offset-addition
+                }
+                const cipherReadStream = fs.createReadStream(path, opts)
+
+                // Wait for the stream to be readable, otherwise '.read' is invalid.
                 cipherReadStream.on('readable', () => {
                     // 'content' may be shorter than 'length' when near the end of the stream.
                     // The stream returns 'null' when the end is reached
-                    const cipher = cipherReadStream.read(length)
+                    const cipher = cipherReadStream.read(opts.end - opts.start)
                     cipherReadStream.close() // close stream to ensure on('readable') is not called multiple times
                     if (!cipher || cipher.length === 0) return cb(0) // end of file reached
 
                     // Decrypt the file-content
                     const key = keyProvider.getKeyForPath(path)
-                    const plain = crypto.decryptSlice(cipher, nonce, key, position, length)
+                    const plain = crypto.decryptSlice2(cipher, nonce, key, position, length)
 
                     plain.copy(buffer) // copy 'plain' into buffer
                     cb(plain.length) // return number of bytes written to 'buffer'
