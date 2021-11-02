@@ -197,7 +197,7 @@ const handlers = {
                 const writeStream = fs.createWriteStream(path)
                 writeStream.write(nonceAndCipher, (err => {
                     if (err) return cb(0) // Error occured. Mark that no bytes were written
-                    else return cb(length) // Successful. All bytes of 'buffer' were written
+                    else return cb(cipher.length) // Successful. All bytes of 'buffer' were written
                 }))
             } else {
                 // We need to decrypt the existing content of file at 'path',
@@ -205,8 +205,8 @@ const handlers = {
 
                 // Read all of the existing content into 'readBuffer'
                 const readBuffer = Buffer.alloc(stat.size - crypto.NONCE_LENGTH)
-                this.read(path, fd, readBuffer, readBuffer.length, 0, (length) => {
-                    if (length !== readBuffer.length) return cb(1) // read-error occured. TODO: use proper error code
+                this.read(path, fd, readBuffer, readBuffer.length, 0, (readLength) => {
+                    if (readLength !== readBuffer.length) return cb(1) // read-error occured. TODO: use proper error code
                     if (position > readBuffer.length) return cb(1) // We try to write 'buffer' into a 'position' in 'readBuffer' that does not exist. TODO: Unsure how to handle this case yet.
                     // insert 'buffer' into the 'readBuffer' at position
                     const updatedReadBuffer = insertInto(readBuffer, buffer, position, length)
