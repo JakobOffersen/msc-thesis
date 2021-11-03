@@ -2,6 +2,7 @@ const fs = require('fs')
 const fsP = require('fs/promises')
 const crypto = require('./crypto')
 const util = require('util')
+const { isAsyncFunction } = require('util/types')
 class FSError extends Error {
     constructor(code) {
         super()
@@ -80,118 +81,81 @@ async function readCipherInFile(file, position, length) {
 const keyProvider = new KeyProvider()
 
 const handlers = {
-    init(cb) { },
+    async init() { },
 
-    access(path, mode, cb) {
-        fs.access(path, mode, (err) => {
-            if (err) cb(1) //mark failed. TODO: Use proper error code
-            else cb(0) // success
-        })
+    async access(path, mode) {
+        return fsP.access(path, mode)
     },
 
-    statfs(path, cb) {
+    async statfs(path) {
         // TODO: What is the difference between 'statfs' and 'getattr'?
         // TODO: Unsure if this is a proper implementation
-        fs.stat(path, (err, stat) => {
-            if (err || !stat.isDirectory()) cb(1)
-            else cb(0, stat)
-        })
+        const res = await fsP.stat(path)
+        if (!res.isDirectory()) throw new FSError(-1) // TODO: Proper error code
+        return res
     },
 
-    getattr(path, cb) {
-        fs.stat(path, (err, stat) => {
-            if (err) cb(1) // return error code. TODO: Use proper error code
-            else cb(0, stat)
-        })
+    async getattr(path) {
+        return fsP.stat(path)
     },
 
-    fgetattr(path, fd, cb) {
-        fs.fstat(fd, (err, stat) => {
-            if (err) cb(1)
-            else cb(0, stat)
-        })
+    async fgetattr(path, fd) {
+        return fsP.fstat(fd)
     },
 
     //TODO: Performance optimisation. Write to in-mem buffer instead of directly to disk. Then use 'flush' to store the in-mem buffer on disk.
-    flush(path, fd, cb) { },
+    async flush(path, fd) { },
 
-    fsync(path, fd, datasync, cb) {
-        fs.fsync(fd, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async fsync(path, fd, datasync) {
+        return fsP.fsync(fd)
     },
 
     //TODO: Different implementation of 'fsync' and fsyncdir'?
-    fsyncdir(path, fd, datasync, cb) { },
+    async fsyncdir(path, fd, datasync) { },
 
-    readdir(path, cb) {
-        fs.readdir(path, (err, fileNames) => {
-            if (err) cb(1) // mark error. TODO: Use proper error
-            else cb(0, fileNames)
-        })
+    async readdir(path) {
+        return fsP.readdir(path)
     },
 
-    truncate(path, size, cb) {
-        fs.truncate(path, size, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async truncate(path, size) {
+        return fsP.truncate(path, size)
     },
 
-    ftruncate(path, fd, size, cb) {
-        fs.ftruncate(fd, size, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async ftruncate(path, fd, size) {
+        return fsP.ftruncate(fd, size)
     },
 
-    readLink(path, cb) {
-        fs.readlink(path, (err, link) => {
-            if (err) cb(1)
-            else cb(0, link)
-        })
+    async readLink(path) {
+        return fsP.readlink(path)
     },
 
-    chown(path, uid, gid, cb) {
-        fs.chown(path, uid, gid, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async chown(path, uid, gid) {
+        return fsP.chown(path, uid, gid)
     },
 
-    chmod(path, mode, cb) {
-        fs.chmod(path, mode, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async chmod(path, mode) {
+        return fsP.chmod(path, mode)
     },
 
-    mknod(path, mode, deb, cb) { },
-    setxattr(path, name, value, position, flags, cb) { },
-    getxattr(path, name, position, cb) { },
-    listxattr(path, name, cb) { },
-    removexattr(path, name, cb) { },
+    async mknod(path, mode, deb) { },
+    async setxattr(path, name, value, position, flags) { },
+    async getxattr(path, name, position) { },
+    async listxattr(path, name) { },
+    async removexattr(path, name) { },
 
-    open(path, flags, cb) {
-        fs.open(path, flags, (err, fd) => {
-            if (err) cb(1) // mark failed. TODO: Use proper error
-            else cb(0, fd)
-        })
+    async open(path, flags) {
+        return fsP.open(path, flags)
     },
 
     //TODO: Should 'flags' be used for something?
-    opendir(path, flags, cb) {
-        fs.opendir(path, (err, dir) => {
-            if (err) cb(1) // mark failed. TODO: Use proper error
-            else (0, dir)
-        })
+    async opendir(path, flags) {
+        return fsP.opendir(path)
     },
 
     // write content into 'buffer' to be read by the caller
     // TODO: Optimization: Instead of creating the readstream at each call, only open the file once and close when the end of the file is reached
     // TODO: Does the readstream close itself when the end its end is reached?
-    read: async function (path, fd, buffer, length, position) {
+    async read(path, fd, buffer, length, position) {
         const stat = await fsP.stat(path)
         const file = await fsP.open(path, "r")
         if (position >= stat.size - crypto.NONCE_LENGTH) throw new FSError(-1) // read-error occured. TODO: use proper error code
@@ -207,9 +171,8 @@ const handlers = {
 
     // Encrypts before writing to disk. Each write-call re-encrypts the file at 'path' using a fresh nonce.
     // Assumes the file at 'path' already exists
-    write: async function (path, fd, buffer, length, position) {
+    async write(path, fd, buffer, length, position) {
         const key = keyProvider.getKeyForPath(path)
-
         const stat = await fsP.stat(path)
 
         if (stat.size === 0) {
@@ -259,46 +222,38 @@ const handlers = {
         this.release(path, fd, cb) //TODO: Is this okay? If not, what are the differences?
     },
 
-    create(path, mode, cb) {
-        fs.open(path, 'wx+', mode, (err, fd) => { // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
-            if (err) cb(1)
-            else cb(0)
-        })
+    async create(path, mode) {
+        // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
+        return fsP.open(path, "wx+", mode)
     },
 
     utimens(path, atime, mtime, cb) { },
     unlink(path, cb) { },
     rename(src, dest, cb) { },
 
-    link(src, dest, cb) {
-        fs.link(src, dest, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async link(src, dest) {
+        return fsP.link(src, dest)
     },
 
-    symlink(src, dest, cb) {
-        fs.symlink(dest, src, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async symlink(src, dest) {
+        return fsP.symlink(dest, src)
     },
 
-    mkdir(path, mode, cb) {
-        fs.mkdir(path, { recursive: false, mode: mode }, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async mkdir(path, mode) {
+        return fsP.mkdir(path, { recursive: false, mode: mode })
     },
 
-    rmdir(path, cb) {
-        fs.rmdir(path, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async rmdir(path) {
+        return fsP.rmdir(path)
     }
 }
 
-handlers.write = callbackify(handlers.write)
-handlers.read  = callbackify(handlers.read)
+// Callbackify async handlers
+for (let key of Object.keys(handlers)) {
+    const fn = handlers[key]
+    if (isAsyncFunction(fn)) {
+        handlers[key] = callbackify(fn)
+    }
+}
+
 module.exports = handlers
