@@ -21,12 +21,11 @@ describe("fuse-crypto-handlers.js", function() {
     it("writing small file and then reading same file", function(done) {
         const content = Buffer.from("hello world")
         handlers.write(path, "fd", content, content.length, 0, (err, length) => {
-            console.log("Test received length: ", length, " and expected: ", content.length)
             assert.isTrue(length === content.length)
 
             const readBuffer = Buffer.alloc(content.length)
 
-            handlers.read(path, "fd", readBuffer, content.length, 0, (length) => {
+            handlers.read(path, "fd", readBuffer, content.length, 0, (err, length) => {
                 assert.isTrue(length === content.length)
                 assert.isTrue(Buffer.compare(content, readBuffer) === 0)
                 done()
@@ -63,7 +62,7 @@ describe("fuse-crypto-handlers.js", function() {
                 assert.isTrue(length === content2.length)
 
                 const readBuffer = Buffer.alloc(content1.length + content2.length)
-                handlers.read(path, "fd", readBuffer, readBuffer.length, 0, (length) => {
+                handlers.read(path, "fd", readBuffer, readBuffer.length, 0, (err, length) => {
                     assert.isTrue(readBuffer.length === length)
 
                     assert.isTrue(Buffer.compare(combined, readBuffer) === 0) // .compare returns 0 when the two buffers are equal
@@ -85,7 +84,7 @@ describe("fuse-crypto-handlers.js", function() {
                 assert.isTrue(length === contentToBeWritten.length)
 
                 const readBuffer = Buffer.alloc(initialContent.length + contentToBeWritten.length)
-                handlers.read(path, "fd", readBuffer, readBuffer.length, 0, (length) => {
+                handlers.read(path, "fd", readBuffer, readBuffer.length, 0, (err, length) => {
                     assert.isTrue(readBuffer.length === length)
 
                     // compute the expected result
@@ -115,7 +114,7 @@ describe("fuse-crypto-handlers.js", function() {
                 assert.isTrue(length === contentToBeWritten.length)
 
                 const readBuffer = Buffer.alloc(readLength)
-                handlers.read(path, "fd", readBuffer, readBuffer.length, readPosition, (length) => {
+                handlers.read(path, "fd", readBuffer, readBuffer.length, readPosition, (err, length) => {
                     assert.isTrue(readBuffer.length === length)
 
                     // compute the expected result
