@@ -241,7 +241,7 @@ const handlers = {
 
             // Read all of the existing content into 'readBuffer'
             const readBuffer = Buffer.alloc(stat.size - crypto.NONCE_LENGTH)
-            const readLength = await this.readP(path, fd, readBuffer, readBuffer.length, 0)
+            const readLength = await this.read(path, fd, readBuffer, readBuffer.length, 0)
 
             if (readLength !== readBuffer.length) throw new FSError(-1) // read-error occured. TODO: use proper error code
             if (position > readBuffer.length) throw new FSError(-1) // We try to write 'buffer' into a 'position' in 'readBuffer' that does not exist. TODO: Unsure how to handle this case yet.
