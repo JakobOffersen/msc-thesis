@@ -209,6 +209,4 @@ const handlers = {
     }
 }
 
-callbackifyHandlers(handlers)
-
 module.exports = handlers
