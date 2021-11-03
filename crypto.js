@@ -14,6 +14,15 @@ function makeSymmetricKey() {
     return nonce
 }
 
+// assumes that 'nonce' is prepended to 'cipher'
+function splitNonceAndCipher(nonceAndCipher) {
+    const nonceLength = sodium.crypto_secretbox_NONCEBYTES
+    return {
+        nonce: nonceAndCipher.slice(0, nonceLength),    // first 'nonceLength' bytes
+        cipher: nonceAndCipher.slice(nonceLength)       // remaining bytes
+    }
+}
+
 function encrypt(plainMessage, key) {
     let ciphertext = Buffer.alloc(plainMessage.length + sodium.crypto_secretbox_MACBYTES)
     let message = Buffer.from(plainMessage, 'utf-8')
@@ -110,6 +119,44 @@ function decryptSlice(cipher, nonce, key, position, length) {
     return decrypted.slice(startPosition, startPosition + length)
 }
 
+/**
+ * Decrypts a slice of 'cipher' using 'nonce' and 'key'. The slice starts at 'position' and is 'length' long if possible.
+ * It is assumed that 'cipher' starts from the beginning of the block containing 'position'.
+ * Example:
+ *      original cipher = [B1, B2, B3, B4, B5], where each B is a block (64 bytes each)
+ *      Say 'position' = 77
+ *      Then 'position' points to B2, and it is assumed that the 'cipher' passed to this function also starts at B2.
+ * @param {* Buffer} cipher
+ * @param {* Buffer (24 bytes)} nonce
+ * @param {* Buffer (32 bytes)} key
+ * @param {* integer (non-negative)} position
+ * @param {* integer (non-negative)} length
+ * @returns Buffer. Is truncated if the requested slice overflows 'cipher'
+ */
+function decryptSlice2(cipher, nonce, key, position, length) { //TODO: Come up with a better name
+    if (!Number.isInteger(position)) throw new Error ("'position' must be integer but received " + position)
+    if (position < 0) throw new Error("'position' must be non-negative but received " + position)
+    if (!Number.isInteger(length)) throw new Error ("'length' must be integer but received " + length)
+    if (length < 0) throw new Error("'length' must be non-negative but received " + length)
+
+    const ic = Math.floor(position / STREAM_BLOCK_SIZE)
+    const decrypted = streamXOR(cipher, nonce, ic, key)
+    const startPosition = position % STREAM_BLOCK_SIZE
+
+    return decrypted.slice(startPosition, startPosition + length)
+}
+
+/**
+ * Encrypts 'buffer' using 'key' and 'nonce' and inserts it into 'cipher'
+ * at [position, position + length] and "pushes" the tail of further back in the buffer.
+ * @param {d} cipher
+ * @param {*} nonce
+ * @param {*} key
+ * @param {*} buffer
+ * @param {*} position
+ * @param {*} length
+ * @returns cipher
+ */
 function encryptSlice(cipher, nonce, key, buffer, position, length) {
     if (!Number.isInteger(position)) throw new Error("position must be integer but received " + typeof(position))
     if (position < 0) throw new Error("'position' must be non-negagive, but received " + position)
@@ -125,7 +172,7 @@ function encryptSlice(cipher, nonce, key, buffer, position, length) {
     // #2: 'position' points inside of an existing block, B. B can be already used or it can be partially used, if it is the last block of 'cipher'.
     //      In both cases, we need to perform the following steps:
     //      1) Slice and decrypt B and all blocks coming after B. This is necessary since all aftercoming blocks should be re-encrypted under a new 'ic'
-    //      2) Inject the incoming buffer inbetween B and the aftercoming blocks
+    //      2) Insert the incoming buffer inbetween B and the aftercoming blocks
     //      3) Encrypt B + buffer + remaining blocks starting with 'ic' for B.
     //      4) Concat all the pieces together
 
@@ -161,8 +208,11 @@ module.exports = {
     sign,
     verify,
     streamXOR,
-    decryptSlice: decryptSlice,
-    encryptSlice: encryptSlice,
+    splitNonceAndCipher,
+    decryptSlice,
+    decryptSlice2,
+    encryptSlice,
     SYM_KEY_LENGTH: sodium.crypto_secretbox_KEYBYTES,
     STREAM_BLOCK_SIZE: STREAM_BLOCK_SIZE,
+    NONCE_LENGTH: sodium.crypto_secretbox_NONCEBYTES
 }
