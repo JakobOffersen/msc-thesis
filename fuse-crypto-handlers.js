@@ -2,6 +2,7 @@ const fs = require('fs')
 const fsP = require('fs/promises')
 const crypto = require('./crypto')
 const util = require('util')
+const { isAsyncFunction } = require('util/types')
 class FSError extends Error {
     constructor(code) {
         super()
@@ -306,35 +307,29 @@ const handlers = {
     unlink(path, cb) { },
     rename(src, dest, cb) { },
 
-    link(src, dest, cb) {
-        fs.link(src, dest, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async link(src, dest) {
+        return fsP.link(src, dest)
     },
 
-    symlink(src, dest, cb) {
-        fs.symlink(dest, src, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async symlink(src, dest) {
+        return fsP.symlink(dest, src)
     },
 
-    mkdir(path, mode, cb) {
-        fs.mkdir(path, { recursive: false, mode: mode }, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async mkdir(path, mode) {
+        return fsP.mkdir(path, { recursive: false, mode: mode })
     },
 
-    rmdir(path, cb) {
-        fs.rmdir(path, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async rmdir(path) {
+        return fsP.rmdir(path)
     }
 }
 
-handlers.write = callbackify(handlers.write)
+// Callbackify async handlers
+for (let key of Object.keys(handlers)) {
+    const fn = handlers[key]
+    if (isAsyncFunction(fn)) {
+        handlers[key] = callbackify(fn)
+    }
+}
 
 module.exports = handlers
