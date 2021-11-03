@@ -194,9 +194,7 @@ const handlers = {
     read: async function (path, fd, buffer, length, position) {
         const stat = await fsP.stat(path)
         const file = await fsP.open(path, "r")
-        if (position >= stat.size - crypto.NONCE_LENGTH) {
-            //TODO handle invalid read properly
-        }
+        if (position >= stat.size - crypto.NONCE_LENGTH) throw new FSError(-1) // read-error occured. TODO: use proper error code
 
         const key = keyProvider.getKeyForPath(path)
         const nonce = await readNonceInFile(file)
