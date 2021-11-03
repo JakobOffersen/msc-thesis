@@ -1,4 +1,4 @@
-const { DropboxProvider } = require("../storage_providers/storage_provider")
+const { DropboxProvider } = require("./storage_providers/storage_provider")
 const path = require("path")
 
 const dropboxApp = {
