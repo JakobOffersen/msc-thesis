@@ -1,4 +1,4 @@
-const fs = require('fs')
+const fs = require('fs/promises')
 const crypto = require('./crypto')
 
 class KeyProvider {
@@ -30,6 +30,27 @@ function readNonceAtPath(path, cb) {
         if (!nonce || nonce.length !== crypto.NONCE_LENGTH) cb(null) // An error occured.
         else cb(nonce)
     })
+}
+
+function computeReadWindow(position, length) {
+    const firstBlockOffset = position % crypto.STREAM_BLOCK_SIZE
+    return {                                                        // Offset the stream with 'NONCE_LENGTH' to skip the prepended nonce.
+        start: crypto.NONCE_LENGTH + position - firstBlockOffset,   // Subtract the offset of the first-block to make the readstream start at beginning of first block.
+        windowLength: firstBlockOffset + length
+    }
+}
+
+async function readNonceInFile(file) {
+    const nonce = Buffer.alloc(crypto.NONCE_LENGTH)
+    await file.read(nonce, 0, crypto.NONCE_LENGTH, 0) // fill 'nonce' with the first 'NONCE_LENGTH' bytes of 'file
+    return nonce
+}
+
+async function readCipherInFile(file, position, length) {
+    const { start, windowLength } = computeReadWindow(position, length)
+    const cipher = Buffer.alloc(windowLength)
+    await file.read(cipher, 0, windowLength, start)
+    return cipher
 }
 
 const keyProvider = new KeyProvider()
@@ -146,43 +167,56 @@ const handlers = {
     // write content into 'buffer' to be read by the caller
     // TODO: Optimization: Instead of creating the readstream at each call, only open the file once and close when the end of the file is reached
     // TODO: Does the readstream close itself when the end its end is reached?
-    read: function (path, fd, buffer, length, position, cb) {
-        fs.stat(path, (err, stats) => {
-            if (err) return cb(0) // Error occured. Mark file as read //TODO: Use proper error code?
+    read: async function (path, fd, buffer, length, position) {
+        const stat = await fs.stat(path)
+        const file = await fs.open(path, "r")
+        if (position >= stat.size - crypto.NONCE_LENGTH) {
+            //TODO handle invalid read properly
+        }
 
-            // Check if caller tries to read from a position after the file content.
-            // Note that 'stats.size' includes the prepended buffer. Must be subtracted.
-            if (position >= stats.size - crypto.NONCE_LENGTH) return cb(0) // Reached end of file. Mark 0 bytes written to 'buffer'
+        const key = keyProvider.getKeyForPath(path)
+        const nonce = await readNonceInFile(file)
+        const cipher = await readCipherInFile(file, position, length)
+        const plain = crypto.decryptSlice2(cipher, nonce, key, position, length)
+        plain.copy(buffer) // copy 'plain' into buffer
+        return plain.length
 
-            readNonceAtPath(path, (nonce) => {
-                if (!nonce) return cb(0) // An error occured. Mark 0 bytes written to 'buffer'
+        // fs.stat(path, (err, stats) => {
+        //     if (err) return cb(0) // Error occured. Mark file as read //TODO: Use proper error code?
 
-                // Create a readstream only for the relevant slice of 'cipher'.
-                // The readstream must start reading from the beginning of the first block of the cipher for the decryption to be valid.
-                const firstBlockOffset = position % crypto.STREAM_BLOCK_SIZE
-                const opts = {                                                          // Offset the stream with 'NONCE_LENGTH' to skip the prepended nonce.
-                    start: crypto.NONCE_LENGTH + position - firstBlockOffset,           // Subtract the offset of the first-block to make the readstream start at beginning of first block.
-                    end:   crypto.NONCE_LENGTH + position + firstBlockOffset + length   // Add the offset of the first block to counter the subtraction in 'start'. Otherwise the stream-length would be too short.
-                }
-                const cipherReadStream = fs.createReadStream(path, opts)
+        //     // Check if caller tries to read from a position after the file content.
+        //     // Note that 'stats.size' includes the prepended buffer. Must be subtracted.
+        //     if (position >= stats.size - crypto.NONCE_LENGTH) return cb(0) // Reached end of file. Mark 0 bytes written to 'buffer'
 
-                // Wait for the stream to be readable, otherwise '.read' is invalid.
-                cipherReadStream.on('readable', () => {
-                    // 'content' may be shorter than 'length' when near the end of the stream.
-                    // The stream returns 'null' when the end is reached
-                    const cipher = cipherReadStream.read() // Read the stream
-                    cipherReadStream.close() // close stream to ensure on('readable') is not called multiple times
-                    if (!cipher || cipher.length === 0) return cb(0) // end of file reached
+        //     readNonceAtPath(path, (nonce) => {
+        //         if (!nonce) return cb(0) // An error occured. Mark 0 bytes written to 'buffer'
 
-                    // Decrypt the file-content
-                    const key = keyProvider.getKeyForPath(path)
-                    const plain = crypto.decryptSlice2(cipher, nonce, key, position, length)
+        //         // Create a readstream only for the relevant slice of 'cipher'.
+        //         // The readstream must start reading from the beginning of the first block of the cipher for the decryption to be valid.
+        //         const firstBlockOffset = position % crypto.STREAM_BLOCK_SIZE
+        //         const opts = {                                                          // Offset the stream with 'NONCE_LENGTH' to skip the prepended nonce.
+        //             start: crypto.NONCE_LENGTH + position - firstBlockOffset,           // Subtract the offset of the first-block to make the readstream start at beginning of first block.
+        //             end:   crypto.NONCE_LENGTH + position + firstBlockOffset + length   // Add the offset of the first block to counter the subtraction in 'start'. Otherwise the stream-length would be too short.
+        //         }
+        //         const cipherReadStream = fs.createReadStream(path, opts)
 
-                    plain.copy(buffer) // copy 'plain' into buffer
-                    cb(plain.length) // return number of bytes written to 'buffer'
-                })
-            })
-        })
+        //         // Wait for the stream to be readable, otherwise '.read' is invalid.
+        //         cipherReadStream.on('readable', () => {
+        //             // 'content' may be shorter than 'length' when near the end of the stream.
+        //             // The stream returns 'null' when the end is reached
+        //             const cipher = cipherReadStream.read() // Read the stream
+        //             cipherReadStream.close() // close stream to ensure on('readable') is not called multiple times
+        //             if (!cipher || cipher.length === 0) return cb(0) // end of file reached
+
+        //             // Decrypt the file-content
+        //             const key = keyProvider.getKeyForPath(path)
+        //             const plain = crypto.decryptSlice2(cipher, nonce, key, position, length)
+
+        //             plain.copy(buffer) // copy 'plain' into buffer
+        //             cb(plain.length) // return number of bytes written to 'buffer'
+        //         })
+        //     })
+        // })
     },
 
     // Encrypts before writing to disk. Each write-call re-encrypts the file at 'path' using a fresh nonce.
@@ -286,5 +320,7 @@ const handlers = {
         })
     }
 }
+
+handlers.read = 
 
 module.exports = handlers
