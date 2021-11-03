@@ -76,6 +76,14 @@ async function readCipherInFile(file, position, length) {
     return cipher
 }
 
+function encryptBuffer(buffer, key) {
+    const nonce = crypto.makeNonce()
+    const ic = 0
+    const cipher = crypto.streamXOR(buffer, nonce, ic, key)
+    const nonceAndCipher = Buffer.concat([nonce, cipher])
+    return nonceAndCipher
+}
+
 const keyProvider = new KeyProvider()
 
 const handlers = {
@@ -174,14 +182,10 @@ const handlers = {
         const stat = await fs.stat(path)
 
         if (stat.size === 0) {
-            // nothing to decrypt
-            const nonce = crypto.makeNonce()
-            const ic = 0
-            const cipher = crypto.streamXOR(buffer, nonce, ic, key)
-            const nonceAndCipher = Buffer.concat([nonce, cipher])
-
-            await fs.writeFile(path, nonceAndCipher)
-            return cipher.length
+            // nothing to decrypt before encrypting the write
+            const cipher = encryptBuffer(buffer, key)
+            await fs.writeFile(path, cipher)
+            return cipher.length - crypto.NONCE_LENGTH // Mark the the cipher was successfully written. Subtract nonce-bytes to hide the prepended nonce
         } else {
             // We need to decrypt the existing content of file at 'path',
             // add the new write and re-encrypt it all under a new nonce
@@ -194,17 +198,8 @@ const handlers = {
             if (position > readBuffer.length) throw new FSError(-1) // We try to write 'buffer' into a 'position' in 'readBuffer' that does not exist. TODO: Unsure how to handle this case yet.
             // insert 'buffer' into the 'readBuffer' at position
             const updatedReadBuffer = insertInto(readBuffer, buffer, position, length)
-
-            // Encrypt using a fresh nonce
-            const nonce = crypto.makeNonce()
-            const ic = 0 // We start from 0 since the entire buffer is re-encrypted
-            const cipher = crypto.streamXOR(updatedReadBuffer, nonce, ic, key)
-
-            // prepend nonce
-            const nonceAndCipher = Buffer.concat([nonce, cipher])
-
-            // write to 'path'
-            await fs.writeFile(path, nonceAndCipher)
+            const cipher = encryptBuffer(updatedReadBuffer, key)
+            await fs.writeFile(path, cipher)
             return length
         }
     },
