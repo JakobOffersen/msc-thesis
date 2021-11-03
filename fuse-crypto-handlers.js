@@ -1,5 +1,44 @@
 const fs = require('fs')
+const fsP = require('fs/promises')
 const crypto = require('./crypto')
+const util = require('util')
+class FSError extends Error {
+    constructor(code) {
+        super()
+        this.code = code
+    }
+}
+
+function callbackify(fn) {
+    const SUCCESS = 0
+    var fnLength = fn.length
+    return function () {
+        var args = [].slice.call(arguments)
+        var ctx = this
+        if (args.length === fnLength + 1 &&
+            typeof args[fnLength] === 'function') {
+            // callback mode
+            var cb = args.pop()
+            fn.apply(this, args)
+                .then(function (val) {
+                    console.log("Calling CB with res: ", val)
+                    cb.call(ctx, SUCCESS, val)
+                })
+                .catch(function (err) {
+                    let code = -1
+                    console.log("Calling CB with err: ", err)
+                    if (err instanceof FSError) {
+                        code = err.code
+                    }
+
+                    cb.call(ctx, code)
+                })
+            return
+        }
+        // promise mode
+        return fn.apply(ctx, arguments)
+    }
+}
 
 class KeyProvider {
     constructor() {
@@ -7,7 +46,7 @@ class KeyProvider {
     }
 
     getKeyForPath(path) {
-        if(!this._keymap.has(path)) this._keymap.set(path, crypto.makeSymmetricKey()) // create new key for path if existing key doesnt exist
+        if (!this._keymap.has(path)) this._keymap.set(path, crypto.makeSymmetricKey()) // create new key for path if existing key doesnt exist
         return this._keymap.get(path)
     }
 }
@@ -21,7 +60,7 @@ function insertInto(source, target, position, length) {
 
 function readNonceAtPath(path, cb) {
     // Read out the nonce of the file.
-    const nonceReadStream = fs.createReadStream(path, {start: 0, end: crypto.NONCE_LENGTH })
+    const nonceReadStream = fs.createReadStream(path, { start: 0, end: crypto.NONCE_LENGTH })
 
     // Wait for the stream to be readable, otherwise '.read' is invalid.
     nonceReadStream.on('readable', () => {
@@ -35,7 +74,7 @@ function readNonceAtPath(path, cb) {
 const keyProvider = new KeyProvider()
 
 const handlers = {
-    init(cb) {},
+    init(cb) { },
 
     access(path, mode, cb) {
         fs.access(path, mode, (err) => {
@@ -62,13 +101,13 @@ const handlers = {
 
     fgetattr(path, fd, cb) {
         fs.fstat(fd, (err, stat) => {
-            if(err) cb(1)
+            if (err) cb(1)
             else cb(0, stat)
         })
     },
 
     //TODO: Performance optimisation. Write to in-mem buffer instead of directly to disk. Then use 'flush' to store the in-mem buffer on disk.
-    flush(path, fd, cb) {},
+    flush(path, fd, cb) { },
 
     fsync(path, fd, datasync, cb) {
         fs.fsync(fd, (err) => {
@@ -78,7 +117,7 @@ const handlers = {
     },
 
     //TODO: Different implementation of 'fsync' and fsyncdir'?
-    fsyncdir(path, fd, datasync, cb) {},
+    fsyncdir(path, fd, datasync, cb) { },
 
     readdir(path, cb) {
         fs.readdir(path, (err, fileNames) => {
@@ -109,7 +148,7 @@ const handlers = {
     },
 
     chown(path, uid, gid, cb) {
-        fs.chown(path, uid, gid, (err) =>{
+        fs.chown(path, uid, gid, (err) => {
             if (err) cb(1)
             else cb(0)
         })
@@ -122,11 +161,11 @@ const handlers = {
         })
     },
 
-    mknod(path, mode, deb, cb) {},
-    setxattr(path, name, value, position, flags, cb) {},
-    getxattr(path, name, position, cb) {},
-    listxattr(path, name, cb) {},
-    removexattr(path, name, cb) {},
+    mknod(path, mode, deb, cb) { },
+    setxattr(path, name, value, position, flags, cb) { },
+    getxattr(path, name, position, cb) { },
+    listxattr(path, name, cb) { },
+    removexattr(path, name, cb) { },
 
     open(path, flags, cb) {
         fs.open(path, flags, (err, fd) => {
@@ -162,7 +201,7 @@ const handlers = {
                 const firstBlockOffset = position % crypto.STREAM_BLOCK_SIZE
                 const opts = {                                                          // Offset the stream with 'NONCE_LENGTH' to skip the prepended nonce.
                     start: crypto.NONCE_LENGTH + position - firstBlockOffset,           // Subtract the offset of the first-block to make the readstream start at beginning of first block.
-                    end:   crypto.NONCE_LENGTH + position + firstBlockOffset + length   // Add the offset of the first block to counter the subtraction in 'start'. Otherwise the stream-length would be too short.
+                    end: crypto.NONCE_LENGTH + position + firstBlockOffset + length   // Add the offset of the first block to counter the subtraction in 'start'. Otherwise the stream-length would be too short.
                 }
                 const cipherReadStream = fs.createReadStream(path, opts)
 
@@ -185,55 +224,64 @@ const handlers = {
         })
     },
 
+    readP: async function (path, fd, buffer, length, position) {
+        return new Promise((resolve, reject) => {
+            this.read(path, fd, buffer, length, position, (err) => {
+                console.log("Read res", err)
+                if (err && err < 0) {
+                    reject(err)
+                    return
+                }
+
+                const readLength = err
+
+                resolve(readLength)
+
+            })
+        })
+    },
+
     // Encrypts before writing to disk. Each write-call re-encrypts the file at 'path' using a fresh nonce.
     // Assumes the file at 'path' already exists
-    write: function(path, fd, buffer, length, position, cb) {
+    write: async function (path, fd, buffer, length, position) {
         const key = keyProvider.getKeyForPath(path)
 
-        fs.stat(path, (err, stat) => {
-            if (err) return cb(1) // TODO: use proper error code
+        const stat = await fsP.stat(path)
 
-            if (stat.size === 0) {
-                // nothing to decrypt
-                const nonce = crypto.makeNonce()
-                const ic = 0
-                const cipher = crypto.streamXOR(buffer, nonce, ic, key)
-                const nonceAndCipher = Buffer.concat([nonce, cipher])
+        if (stat.size === 0) {
+            // nothing to decrypt
+            const nonce = crypto.makeNonce()
+            const ic = 0
+            const cipher = crypto.streamXOR(buffer, nonce, ic, key)
+            const nonceAndCipher = Buffer.concat([nonce, cipher])
 
-                const writeStream = fs.createWriteStream(path)
-                writeStream.write(nonceAndCipher, (err => {
-                    if (err) return cb(0) // Error occured. Mark that no bytes were written
-                    else return cb(cipher.length) // Successful. All bytes of 'buffer' were written
-                }))
-            } else {
-                // We need to decrypt the existing content of file at 'path',
-                // add the new write and re-encrypt it all under a new nonce
+            await fsP.writeFile(path, nonceAndCipher)
+            return cipher.length
+        } else {
+            // We need to decrypt the existing content of file at 'path',
+            // add the new write and re-encrypt it all under a new nonce
 
-                // Read all of the existing content into 'readBuffer'
-                const readBuffer = Buffer.alloc(stat.size - crypto.NONCE_LENGTH)
-                this.read(path, fd, readBuffer, readBuffer.length, 0, (readLength) => {
-                    if (readLength !== readBuffer.length) return cb(1) // read-error occured. TODO: use proper error code
-                    if (position > readBuffer.length) return cb(1) // We try to write 'buffer' into a 'position' in 'readBuffer' that does not exist. TODO: Unsure how to handle this case yet.
-                    // insert 'buffer' into the 'readBuffer' at position
-                    const updatedReadBuffer = insertInto(readBuffer, buffer, position, length)
+            // Read all of the existing content into 'readBuffer'
+            const readBuffer = Buffer.alloc(stat.size - crypto.NONCE_LENGTH)
+            const readLength = await this.readP(path, fd, readBuffer, readBuffer.length, 0)
 
-                    // Encrypt using a fresh nonce
-                    const nonce = crypto.makeNonce()
-                    const ic = 0 // We start from 0 since the entire buffer is re-encrypted
-                    const cipher = crypto.streamXOR(updatedReadBuffer, nonce, ic, key)
+            if (readLength !== readBuffer.length) throw new FSError(-1) // read-error occured. TODO: use proper error code
+            if (position > readBuffer.length) throw new FSError(-1) // We try to write 'buffer' into a 'position' in 'readBuffer' that does not exist. TODO: Unsure how to handle this case yet.
+            // insert 'buffer' into the 'readBuffer' at position
+            const updatedReadBuffer = insertInto(readBuffer, buffer, position, length)
 
-                    // prepend nonce
-                    const nonceAndCipher = Buffer.concat([nonce, cipher])
+            // Encrypt using a fresh nonce
+            const nonce = crypto.makeNonce()
+            const ic = 0 // We start from 0 since the entire buffer is re-encrypted
+            const cipher = crypto.streamXOR(updatedReadBuffer, nonce, ic, key)
 
-                    // write to 'path'
-                    const writeStream = fs.createWriteStream(path)
-                    writeStream.write(nonceAndCipher, (err => {
-                        if (err) return cb(0) // Error occured. Mark that no bytes were written
-                        else return cb(length) // Successful. All bytes of 'buffer' were written
-                    }))
-                })
-            }
-        })
+            // prepend nonce
+            const nonceAndCipher = Buffer.concat([nonce, cipher])
+
+            // write to 'path'
+            await fsP.writeFile(path, nonceAndCipher)
+            return length
+        }
     },
 
     release(path, fd, cb) {
@@ -254,9 +302,9 @@ const handlers = {
         })
     },
 
-    utimens(path, atime, mtime, cb) {},
-    unlink(path, cb) {},
-    rename(src, dest, cb) {},
+    utimens(path, atime, mtime, cb) { },
+    unlink(path, cb) { },
+    rename(src, dest, cb) { },
 
     link(src, dest, cb) {
         fs.link(src, dest, (err) => {
@@ -273,18 +321,20 @@ const handlers = {
     },
 
     mkdir(path, mode, cb) {
-        fs.mkdir(path, {recursive: false, mode: mode}, (err) => {
+        fs.mkdir(path, { recursive: false, mode: mode }, (err) => {
             if (err) cb(1)
             else cb(0)
         })
     },
 
     rmdir(path, cb) {
-        fs.rmdir(path, (err) => {
+        fs.rmdir(path, (err) => {
             if (err) cb(1)
             else cb(0)
         })
     }
 }
+
+handlers.write = callbackify(handlers.write)
 
 module.exports = handlers
