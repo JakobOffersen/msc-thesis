@@ -56,19 +56,6 @@ function insertInto(source, target, position, length) {
     return Buffer.concat([headSlice, truncatedTarget, tailSlice])
 }
 
-function readNonceAtPath(path, cb) {
-    // Read out the nonce of the file.
-    const nonceReadStream = fs.createReadStream(path, { start: 0, end: crypto.NONCE_LENGTH })
-
-    // Wait for the stream to be readable, otherwise '.read' is invalid.
-    nonceReadStream.on('readable', () => {
-        const nonce = nonceReadStream.read(crypto.NONCE_LENGTH)
-        nonceReadStream.close() // close stream to ensure on('readable') is not called multiple times
-        if (!nonce || nonce.length !== crypto.NONCE_LENGTH) cb(null) // An error occured.
-        else cb(nonce)
-    })
-}
-
 function computeReadWindow(position, length) {
     const firstBlockOffset = position % crypto.STREAM_BLOCK_SIZE
     return {                                                        // Offset the stream with 'NONCE_LENGTH' to skip the prepended nonce.
