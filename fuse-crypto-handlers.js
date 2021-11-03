@@ -201,6 +201,7 @@ const handlers = {
         const cipher = await readCipherInFile(file, position, length)
         const plain = crypto.decryptSlice2(cipher, nonce, key, position, length)
         plain.copy(buffer) // copy 'plain' into buffer
+        await file.close()
         return plain.length
     },
 
