@@ -119,7 +119,21 @@ function decryptSlice(cipher, nonce, key, position, length) {
     return decrypted.slice(startPosition, startPosition + length)
 }
 
-function decryptSlice2(cipher, nonce, key, position, length) {
+/**
+ * Decrypts a slice of 'cipher' using 'nonce' and 'key'. The slice starts at 'position' and is 'length' long if possible.
+ * It is assumed that 'cipher' starts from the beginning of the block containing 'position'.
+ * Example:
+ *      original cipher = [B1, B2, B3, B4, B5], where each B is a block (64 bytes each)
+ *      Say 'position' = 77
+ *      Then 'position' points to B2, and it is assumed that the 'cipher' passed to this function also starts at B2.
+ * @param {* Buffer} cipher
+ * @param {* Buffer (24 bytes)} nonce
+ * @param {* Buffer (32 bytes)} key
+ * @param {* integer (non-negative)} position
+ * @param {* integer (non-negative)} length
+ * @returns Buffer. Is truncated if the requested slice overflows 'cipher'
+ */
+function decryptSlice2(cipher, nonce, key, position, length) { //TODO: Come up with a better name
     if (!Number.isInteger(position)) throw new Error ("'position' must be integer but received " + position)
     if (position < 0) throw new Error("'position' must be non-negative but received " + position)
     if (!Number.isInteger(length)) throw new Error ("'length' must be integer but received " + length)
