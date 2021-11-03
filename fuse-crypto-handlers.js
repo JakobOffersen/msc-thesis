@@ -1,7 +1,5 @@
-const fs = require('fs')
-const fsP = require('fs/promises')
+const fs = require('fs/promises')
 const crypto = require('./crypto')
-const util = require('util')
 const { isAsyncFunction } = require('util/types')
 class FSError extends Error {
     constructor(code) {
@@ -84,57 +82,57 @@ const handlers = {
     async init() { },
 
     async access(path, mode) {
-        return fsP.access(path, mode)
+        return fs.access(path, mode)
     },
 
     async statfs(path) {
         // TODO: What is the difference between 'statfs' and 'getattr'?
         // TODO: Unsure if this is a proper implementation
-        const res = await fsP.stat(path)
+        const res = await fs.stat(path)
         if (!res.isDirectory()) throw new FSError(-1) // TODO: Proper error code
         return res
     },
 
     async getattr(path) {
-        return fsP.stat(path)
+        return fs.stat(path)
     },
 
     async fgetattr(path, fd) {
-        return fsP.fstat(fd)
+        return fs.fstat(fd)
     },
 
     //TODO: Performance optimisation. Write to in-mem buffer instead of directly to disk. Then use 'flush' to store the in-mem buffer on disk.
     async flush(path, fd) { },
 
     async fsync(path, fd, datasync) {
-        return fsP.fsync(fd)
+        return fs.fsync(fd)
     },
 
     //TODO: Different implementation of 'fsync' and fsyncdir'?
     async fsyncdir(path, fd, datasync) { },
 
     async readdir(path) {
-        return fsP.readdir(path)
+        return fs.readdir(path)
     },
 
     async truncate(path, size) {
-        return fsP.truncate(path, size)
+        return fs.truncate(path, size)
     },
 
     async ftruncate(path, fd, size) {
-        return fsP.ftruncate(fd, size)
+        return fs.ftruncate(fd, size)
     },
 
     async readLink(path) {
-        return fsP.readlink(path)
+        return fs.readlink(path)
     },
 
     async chown(path, uid, gid) {
-        return fsP.chown(path, uid, gid)
+        return fs.chown(path, uid, gid)
     },
 
     async chmod(path, mode) {
-        return fsP.chmod(path, mode)
+        return fs.chmod(path, mode)
     },
 
     async mknod(path, mode, deb) { },
@@ -144,20 +142,20 @@ const handlers = {
     async removexattr(path, name) { },
 
     async open(path, flags) {
-        return fsP.open(path, flags)
+        return fs.open(path, flags)
     },
 
     //TODO: Should 'flags' be used for something?
     async opendir(path, flags) {
-        return fsP.opendir(path)
+        return fs.opendir(path)
     },
 
     // write content into 'buffer' to be read by the caller
     // TODO: Optimization: Instead of creating the readstream at each call, only open the file once and close when the end of the file is reached
     // TODO: Does the readstream close itself when the end its end is reached?
     async read(path, fd, buffer, length, position) {
-        const stat = await fsP.stat(path)
-        const file = await fsP.open(path, "r")
+        const stat = await fs.stat(path)
+        const file = await fs.open(path, "r")
         if (position >= stat.size - crypto.NONCE_LENGTH) throw new FSError(-1) // read-error occured. TODO: use proper error code
 
         const key = keyProvider.getKeyForPath(path)
@@ -173,7 +171,7 @@ const handlers = {
     // Assumes the file at 'path' already exists
     async write(path, fd, buffer, length, position) {
         const key = keyProvider.getKeyForPath(path)
-        const stat = await fsP.stat(path)
+        const stat = await fs.stat(path)
 
         if (stat.size === 0) {
             // nothing to decrypt
@@ -182,7 +180,7 @@ const handlers = {
             const cipher = crypto.streamXOR(buffer, nonce, ic, key)
             const nonceAndCipher = Buffer.concat([nonce, cipher])
 
-            await fsP.writeFile(path, nonceAndCipher)
+            await fs.writeFile(path, nonceAndCipher)
             return cipher.length
         } else {
             // We need to decrypt the existing content of file at 'path',
@@ -206,45 +204,42 @@ const handlers = {
             const nonceAndCipher = Buffer.concat([nonce, cipher])
 
             // write to 'path'
-            await fsP.writeFile(path, nonceAndCipher)
+            await fs.writeFile(path, nonceAndCipher)
             return length
         }
     },
 
-    release(path, fd, cb) {
-        fs.close(fd, (err) => {
-            if (err) cb(1)
-            else cb(0)
-        })
+    async release(path, fd) {
+        return fs.close(fd)
     },
 
-    releasedir(path, fd, cb) {
-        this.release(path, fd, cb) //TODO: Is this okay? If not, what are the differences?
+    async releasedir(path, fd) {
+        return this.release(path, fd) //TODO: Is this okay? If not, what are the differences?
     },
 
     async create(path, mode) {
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
-        return fsP.open(path, "wx+", mode)
+        return fs.open(path, "wx+", mode)
     },
 
-    utimens(path, atime, mtime, cb) { },
-    unlink(path, cb) { },
-    rename(src, dest, cb) { },
+    async utimens(path, atime, mtime) { },
+    async unlink(path) { },
+    async rename(src, dest) { },
 
     async link(src, dest) {
-        return fsP.link(src, dest)
+        return fs.link(src, dest)
     },
 
     async symlink(src, dest) {
-        return fsP.symlink(dest, src)
+        return fs.symlink(dest, src)
     },
 
     async mkdir(path, mode) {
-        return fsP.mkdir(path, { recursive: false, mode: mode })
+        return fs.mkdir(path, { recursive: false, mode: mode })
     },
 
     async rmdir(path) {
-        return fsP.rmdir(path)
+        return fs.rmdir(path)
     }
 }
 
