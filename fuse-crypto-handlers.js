@@ -1,7 +1,9 @@
 const fs = require("fs/promises")
 const crypto = require("./crypto")
-const { callbackifyHandlers } = require("./util")
+
 class FSError extends Error {
+    static operationNotSupported = new FSError(-100)
+
     constructor(code) {
         super()
         this.code = code
@@ -81,14 +83,14 @@ const handlers = {
     },
 
     //TODO: Performance optimisation. Write to in-mem buffer instead of directly to disk. Then use 'flush' to store the in-mem buffer on disk.
-    async flush(path, fd) { },
+    async flush(path, fd) { throw FSError.operationNotSupported },
 
     async fsync(path, fd, datasync) {
         return fs.fsync(fd)
     },
 
     //TODO: Different implementation of 'fsync' and fsyncdir'?
-    async fsyncdir(path, fd, datasync) { },
+    async fsyncdir(path, fd, datasync) { throw FSError.operationNotSupported },
 
     async readdir(path) {
         return fs.readdir(path)
@@ -114,11 +116,11 @@ const handlers = {
         return fs.chmod(path, mode)
     },
 
-    async mknod(path, mode, deb) { },
-    async setxattr(path, name, value, position, flags) { },
-    async getxattr(path, name, position) { },
-    async listxattr(path, name) { },
-    async removexattr(path, name) { },
+    async mknod(path, mode, deb) { throw FSError.operationNotSupported },
+    async setxattr(path, name, value, position, flags) { throw FSError.operationNotSupported },
+    async getxattr(path, name, position) { throw FSError.operationNotSupported },
+    async listxattr(path, name) { throw FSError.operationNotSupported },
+    async removexattr(path, name) { throw FSError.operationNotSupported },
 
     async open(path, flags) {
         return fs.open(path, flags)
@@ -185,12 +187,19 @@ const handlers = {
 
     async create(path, mode) {
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
-        return fs.open(path, "wx+", mode)
+        const fd = await fs.open(path, "wx+", mode)
+        await fs.close(fd)
     },
 
-    async utimens(path, atime, mtime) { },
-    async unlink(path) { },
-    async rename(src, dest) { },
+    async utimens(path, atime, mtime) { throw FSError.operationNotSupported },
+
+    async unlink(path) {
+        await fs.unlink(path)
+    },
+
+    async rename(src, dest) {
+        await fs.rename(src, dest)
+    },
 
     async link(src, dest) {
         return fs.link(src, dest)
