@@ -21,7 +21,6 @@ describe("fuse-crypto-handlers.js", function() {
     it("writing small file and then reading same file", function(done) {
         const content = Buffer.from("hello world")
         handlers.write(path, "fd", content, content.length, 0, (err, length) => {
-            console.log("Test received length: ", length, " and expected: ", content.length)
             assert.isTrue(length === content.length)
 
             const readBuffer = Buffer.alloc(content.length)
