@@ -152,17 +152,17 @@ const handlers = {
 
             // Check if caller tries to read from a position after the file content.
             // Note that 'stats.size' includes the prepended buffer. Must be subtracted.
-            if (position >= stats.size - crypto.NONCE_LENGTH) return cb(0) // Reached end of file. Mark read completed
+            if (position >= stats.size - crypto.NONCE_LENGTH) return cb(0) // Reached end of file. Mark 0 bytes written to 'buffer'
 
             readNonceAtPath(path, (nonce) => {
                 if (!nonce) return cb(0) // An error occured. Mark 0 bytes written to 'buffer'
 
-                // Note that we need to offset the slice of the readstream due to the prepended nonce.
-                const firstBlockOffset = position % crypto.STREAM_BLOCK_SIZE //TODO: add docu here
-
-                const opts = {
-                    start: crypto.NONCE_LENGTH + position - firstBlockOffset, // TODO: Add docu for offset-subtraction
-                    end:   crypto.NONCE_LENGTH + position + firstBlockOffset + length // TODO: Add docu for offset-addition
+                // Create a readstream only for the relevant slice of 'cipher'.
+                // The readstream must start reading from the beginning of the first block of the cipher for the decryption to be valid.
+                const firstBlockOffset = position % crypto.STREAM_BLOCK_SIZE
+                const opts = {                                                          // Offset the stream with 'NONCE_LENGTH' to skip the prepended nonce.
+                    start: crypto.NONCE_LENGTH + position - firstBlockOffset,           // Subtract the offset of the first-block to make the readstream start at beginning of first block.
+                    end:   crypto.NONCE_LENGTH + position + firstBlockOffset + length   // Add the offset of the first block to counter the subtraction in 'start'. Otherwise the stream-length would be too short.
                 }
                 const cipherReadStream = fs.createReadStream(path, opts)
 
@@ -170,7 +170,7 @@ const handlers = {
                 cipherReadStream.on('readable', () => {
                     // 'content' may be shorter than 'length' when near the end of the stream.
                     // The stream returns 'null' when the end is reached
-                    const cipher = cipherReadStream.read(opts.end - opts.start)
+                    const cipher = cipherReadStream.read() // Read the stream
                     cipherReadStream.close() // close stream to ensure on('readable') is not called multiple times
                     if (!cipher || cipher.length === 0) return cb(0) // end of file reached
 
