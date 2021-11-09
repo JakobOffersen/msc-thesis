@@ -39,7 +39,32 @@ function callbackifyHandlers(handlers) {
     }
 }
 
+
+
+function beforeShutdown(handler) {
+    SHUTDOWN_HANDLERS.push(handler)
+}
+
+const SHUTDOWN_HANDLERS = []
+const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM"]
+const exitHandler = async (signal) => {
+    console.warn(`Shutting down: received ${signal}`);
+
+    for (let handler of SHUTDOWN_HANDLERS) {
+        try {
+            await handler()
+        } catch (error) {
+            console.error(error)
+        }
+    }
+
+    return process.exit(0)
+}
+
+SHUTDOWN_SIGNALS.forEach(signal => process.once(signal, exitHandler))
+
 module.exports = {
     callbackify,
-    callbackifyHandlers
+    callbackifyHandlers,
+    beforeShutdown
 }

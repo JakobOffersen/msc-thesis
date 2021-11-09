@@ -1,6 +1,8 @@
 const fs = require("fs")
 const path = require("path")
 const Fuse = require("fuse-native")
+const { promisify } = require("util")
+const { beforeShutdown } = require("./util")
 
 const MOUNT_DIR = "./mnt"
 const CACHE_DIR = "./cache"
@@ -44,16 +46,5 @@ fuse.mount(function (err) {
     })
 })
 
-function unmount() {
-    fuse.unmount(err => {
-        if (err) {
-            console.log('filesystem at ' + fuse.mnt + ' not unmounted', err)
-        } else {
-            console.log('filesystem at ' + fuse.mnt + ' unmounted')
-        }
-    })
-}
-
-process.once('SIGINT', function () {
-    unmount()
-})
+const unmount = promisify(fuse.unmount).bind(fuse)
+beforeShutdown(unmount)
