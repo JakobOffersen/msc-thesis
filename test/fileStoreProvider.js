@@ -61,12 +61,27 @@ describe("FSP", function () {
 		}
 	})
 
-	it("should upload the local file to dropbox", async function () {
-		try {
-			const filepath = path.join(fullTestPathLocal, filename)
-			await fsp.upload(filepath)
-		} catch (err) {
-			assert.fail("file upload failed")
-		}
+	// it("should upload the local file to dropbox", async function () {
+	// 	try {
+	// 		const filepath = path.join(fullTestPathLocal, filename)
+	// 		await fsp.upload(filepath)
+	// 	} catch (err) {
+	// 		assert.fail("file upload failed")
+	// 	}
+	// })
+
+	it("should trigger longpoll when a new file is uploaded to test-folder", async function () {
+		// setup longpoll
+		fsp.longpoll(fullTestPathFSP).then((response) => {
+			assert.isTrue(response.result.changes)
+		})
+
+		// upload a new file to trigger the longpoll
+		const filename = "long-poll-test2.txt"
+		const filepathLocal = path.join(fullTestPathLocal, filename)
+
+		fs.open(filepathLocal, "w+")
+			//.then(fsp.upload(filepathLocal))
+			.catch(() => assert.fail())
 	})
 })

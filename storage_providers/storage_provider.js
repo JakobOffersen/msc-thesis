@@ -26,6 +26,8 @@ class DropboxProvider extends StorageProvider {
 
     MAX_UPLOAD_TRANSFER_SIZE = 150 * (1024 ** 2) // 150 MB
     MAX_FILE_SIZE = 350 * (1024 ** 3) // 350 GB
+    MIN_LONG_POLL_TIMEOUT = 30 // 30 seconds
+    MAX_LONG_POLL_TIMEOUT = 480 // 8 minutes
 
     constructor(accessToken, baseDir) {
         super()
@@ -117,8 +119,13 @@ class DropboxProvider extends StorageProvider {
         // https://www.dropbox.com/developers/documentation/http/documentation#files-list_folder
         const fullPath = path.join(this.baseDir, directoryPath)
 
-        const cursor = await this.client.filesListFolderGetLatestCursor(fullPath)
+        const latestCursorResponse = await this.client.filesListFolderGetLatestCursor({ path : fullPath })
+        const latestCursor = latestCursorResponse.result.cursor
+        console.log("latest cursor", latestCursor)
+        return this.client.filesListFolderLongpoll({ cursor: latestCursor, timeout: this.MIN_LONG_POLL_TIMEOUT })
     }
+
+    async
 
 }
 
