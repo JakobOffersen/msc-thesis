@@ -17,6 +17,8 @@ class StorageProvider {
     async download(filePath) { abstract() }
     async delete(filePath) { abstract() }
     async createDirectory(directoryPath) { abstract() }
+    async deleteDirectory(directoryPath) { abstract() }
+    async longpoll(directoryPath) { abstract() }
 
 }
 
@@ -52,10 +54,10 @@ class DropboxProvider extends StorageProvider {
             await file.read(window, 0, CHUNK_SIZE)
             offset += CHUNK_SIZE
 
-            const session = await this.client.filesUploadSessionStart({ 
+            const session = await this.client.filesUploadSessionStart({
                 contents: window
             })
-            
+
             // Upload remaining chunks
             while (true) {
                 const remaining = stat.size - offset
@@ -105,6 +107,17 @@ class DropboxProvider extends StorageProvider {
 
     async createDirectory(filePath) {
         return this.client.filesCreateFolderV2({ path: filePath })
+    }
+
+    async deleteDirectory(directoryPath) {
+        return this.client.filesDeleteV2({ path: directoryPath })
+    }
+
+    async longpoll(directoryPath) {
+        // https://www.dropbox.com/developers/documentation/http/documentation#files-list_folder
+        const fullPath = path.join(this.baseDir, directoryPath)
+
+        const cursor = await this.client.filesListFolderGetLatestCursor(fullPath)
     }
 
 }

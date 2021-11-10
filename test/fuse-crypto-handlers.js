@@ -16,7 +16,6 @@ describe("fuse-crypto-handlers.js", function () {
 
     it("writing small file and then reading same file", async function () {
         const content = Buffer.from("hello world")
-        console.log(handlers.write)
         let writeLength = await handlers.write(path, "fd", content, content.length, 0)
         assert.strictEqual(writeLength, content.length)
 
