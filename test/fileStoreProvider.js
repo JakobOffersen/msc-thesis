@@ -12,76 +12,93 @@ const dropboxApp = {
 
 // local paths
 const testDirName = "test-longpoll"
-const fullTestPathLocal = path.join(__dirname, testDirName)
-const filename = "longpoll-test1.txt"
+const fullPathLocal = path.join(__dirname, testDirName)
 
-// FSP paths
-const rootPathFSP = "/"
-const fullTestPathFSP = path.join("/", testDirName)
-
-const fsp = new DropboxProvider(dropboxApp.accessToken, rootPathFSP)
+const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
 
 describe("FSP", function () {
 	before("setup local test files and dropbox test-folder", async function () {
-		// setup test-dir if needed
+		// setup local test-dir if needed
 		try {
-			await fs.access(fullTestPathLocal)
-		} catch (err) {
+			await fs.access(fullPathLocal)
+		} catch (_) {
 			try {
-				await fs.mkdir(fullTestPathLocal)
+				await fs.mkdir(fullPathLocal)
 			} catch (err) {
 				assert.fail()
 			}
 		}
 
 		try {
-			const filepath = path.join(fullTestPathLocal, filename)
-			await fs.open(filepath, "w+")
-
-			// Create FSP test-directory
-			await fsp.createDirectory(fullTestPathFSP)
+			// Create FSP test-directory if it does not already exist
+			await fsp.createDirectory(testDirName)
 		} catch (err) {
-			assert.fail()
+			// if 409 is returned, it means the folder already exist.
+			if (err.status !== 409) {
+				assert.fail()
+			}
 		}
 	})
 
 	after("tear-down local test files", async function () {
 		// tear-down fsp test-directory
 		try {
-			await fsp.deleteDirectory(fullTestPathFSP)
+			await fsp.deleteDirectory(testDirName)
 		} catch (err) {
 			assert.fail()
 		}
 
 		// tear-down local test directory
 		try {
-			await fs.rm(fullTestPathLocal, { recursive: true, force: true })
+			await fs.rm(fullPathLocal, { recursive: true, force: true })
 		} catch (err) {
 			assert.fail()
 		}
 	})
 
-	// it("should upload the local file to dropbox", async function () {
-	// 	try {
-	// 		const filepath = path.join(fullTestPathLocal, filename)
-	// 		await fsp.upload(filepath)
-	// 	} catch (err) {
-	// 		assert.fail("file upload failed")
-	// 	}
-	// })
+	it("longpolling should emit new entries when they are uploaded to the FSP", async function () {
+		// This test sets up a listener for changes in a folder, and then checks if
+		// the listener is called when a file is uploaded to the folder.
+		// We test the listener by having it resolve a promise ('promiseResolve)
+		// which the test is await'ing.
 
-	it("should trigger longpoll when a new file is uploaded to test-folder", async function () {
-		// setup longpoll
-		fsp.longpoll(fullTestPathFSP).then((response) => {
-			assert.isTrue(response.result.changes)
+		const timeoutMs = 10 * 1000 // 10 seconds
+		this.timeout(timeoutMs) // set this test to fail after 10 seconds
+
+		const filename = "long-poll-test2.txt"
+
+		var promiseResolve, promiseReject
+		const promise = new Promise((resolve, reject) => {
+			promiseResolve = resolve
+			promiseReject = reject
 		})
 
-		// upload a new file to trigger the longpoll
-		const filename = "long-poll-test2.txt"
-		const filepathLocal = path.join(fullTestPathLocal, filename)
+		// we expect this handler to be called when a new file upload to the test-folder has succeeded
+		fsp.on(fsp.LONGPOLL_NEW_ENTRIES, ({ path, entries }) => {
+            // check if the new entry is the one we just uploaded
+			if (entries.length !== 1 || entries[0].name !== filename)
+				promiseReject() // fail the test
+			else {
+				promiseResolve() // succeed the test
+			}
+		})
 
-		fs.open(filepathLocal, "w+")
-			//.then(fsp.upload(filepathLocal))
-			.catch(() => assert.fail())
+		await fsp.startLongpoll(testDirName)
+
+		// Create and upload a test-file to trigger the listener
+		const filepathLocal = path.join(fullPathLocal, filename)
+		const filePathRemote = path.join(testDirName, filename)
+
+		await fs.writeFile(filepathLocal, Date().toString())
+		await fsp.upload(filePathRemote)
+
+		try {
+			await promise
+			assert.isTrue(true)
+		} catch (err) {
+            assert.fail()
+		} finally {
+			fsp.stopLongpoll()
+		}
 	})
 })

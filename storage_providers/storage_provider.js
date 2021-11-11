@@ -1,11 +1,14 @@
 const fs = require("fs/promises")
 const path = require("path")
 const { Dropbox } = require("dropbox")
+const EventEmitter = require('events')
+const { relative } = require("path")
 
 const abstract = () => { throw new Error("This method must be implemented by a subclass") }
 
-class StorageProvider {
+class StorageProvider extends EventEmitter {
     constructor() {
+        super()
         if (new.target === StorageProvider) {
             throw new TypeError("Only subclasses of StorageProvider can be constructed")
         }
@@ -14,11 +17,12 @@ class StorageProvider {
     /* File operations */
 
     async upload(filePath) { abstract() }
-    async download(filePath) { abstract() }
+    async downloadFile(filePath) { abstract() }
     async delete(filePath) { abstract() }
     async createDirectory(directoryPath) { abstract() }
     async deleteDirectory(directoryPath) { abstract() }
-    async longpoll(directoryPath) { abstract() }
+    async startLongpoll(directoryPath) { abstract() }
+    async stopLongpoll() { abstract() }
 
 }
 
@@ -29,16 +33,54 @@ class DropboxProvider extends StorageProvider {
     MIN_LONG_POLL_TIMEOUT = 30 // 30 seconds
     MAX_LONG_POLL_TIMEOUT = 480 // 8 minutes
 
-    constructor(accessToken, baseDir) {
+    // Emit Event Names
+    LONGPOLL_RESPONSE_RECEIVED = "longpoll-response-received"
+    LONGPOLL_ERROR = "longpoll-error"
+    LONGPOLL_NEW_ENTRIES = "longpoll-new-entries"
+
+    constructor(accessToken, baseDirLocal) {
         super()
         this.client = new Dropbox({ accessToken: accessToken })
-        this.baseDir = baseDir
+        this.baseDirLocal = baseDirLocal
+        this.baseDirRemote = "/"
+        this.on(this.LONGPOLL_RESPONSE_RECEIVED, this._longpollResponseListener.bind(this))
+        this.on(this.LONGPOLL_ERROR, this._longpollErrorListener.bind(this))
     }
 
-    async upload(filePath) {
-        const fullPath = path.join(this.baseDir, filePath)
-        const file = await fs.open(fullPath, "r")
-        const stat = await fs.stat(fullPath)
+    async _longpollResponseListener({ path, cursor, response }) {
+        const result = response.result
+        // Setup a new longpoll. Delay the polling with 'backoff' if asked to do so by FSP
+        if (result.backoff) {
+            setTimeout(this.startLongpoll(path), result.backoff)
+        } else {
+            this.startLongpoll(path)
+        }
+
+        if (result.changes) {
+            // fetch change
+            try {
+                const response = await this.client.filesListFolderContinue({ cursor })
+                const entries = response.result.entries
+                this.emit(this.LONGPOLL_NEW_ENTRIES, { path, entries })
+            } catch(errer) {
+                this.emit(this.LONGPOLL_ERROR, { path, error })
+            }
+        }
+    }
+
+    _longpollErrorListener({ path, error }) {
+        console.log("_longpollErrorListener", path, error) // TODO: handle properly
+    }
+
+    async upload(relativeFilePath) {
+        const fullPathLocal = path.join(this.baseDirLocal, relativeFilePath)
+        const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
+        const file = await fs.open(fullPathLocal, "r")
+        const stat = await fs.stat(fullPathLocal)
+
+        if (stat.size === 0) {
+            throw new Error("Empty file cannot be uploaded")
+        }
 
         if (stat.size > this.MAX_FILE_SIZE) {
             throw new Error("File exceeds maximum size")
@@ -46,7 +88,7 @@ class DropboxProvider extends StorageProvider {
 
         if (stat.size < this.MAX_UPLOAD_TRANSFER_SIZE) {
             const contents = await file.readFile()
-            await this.client.filesUpload({ path: filePath, mode: "overwrite", contents })
+            await this.client.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
         } else {
             const CHUNK_SIZE = 8 * (1024 ** 2) // 8 MB
             let window = Buffer.alloc(CHUNK_SIZE)
@@ -79,7 +121,7 @@ class DropboxProvider extends StorageProvider {
                     await this.client.filesUploadSessionFinish({
                         contents: window.subarray(0, remaining),
                         cursor: { session_id: session.result.session_id, offset },
-                        commit: { path: filePath, mode: "overwrite" }
+                        commit: { path: relativeFilePath, mode: "overwrite" }
                     })
 
                     offset += remaining
@@ -93,40 +135,87 @@ class DropboxProvider extends StorageProvider {
 
     }
 
-    async download(filePath) {
-        const fullPath = path.join(this.baseDir, filePath)
-        const file = await fs.open(fullPath, "r+")
-        const response = await this.client.filesDownload({ path: filePath })
+    async downloadFile(relativeFilePath) {
+        const fullPathLocal = path.join(this.baseDirLocal, relativeFilePath)
+        const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
+        const file = await fs.open(fullPathLocal, "r+")
+        const response = await this.client.filesDownload({ path: fullPathRemote })
         const result = response.result
 
         await fs.writeFile(file, result.fileBinary, "binary")
         console.log(`File: ${result.name} saved as ${path}.`)
     }
 
-    async delete(filePath) {
-        return this.client.filesDeleteV2({ path: filePath })
+    async delete(relativePath) {
+        const fullPathRemote = path.join(this.baseDirRemote, relativePath)
+        return await this.client.filesDeleteV2({ path: fullPathRemote })
     }
 
-    async createDirectory(filePath) {
-        return this.client.filesCreateFolderV2({ path: filePath })
+    async createDirectory(relativeDirectoryPath) {
+        const fullPathRemote = path.join(this.baseDirRemote, relativeDirectoryPath)
+        return this.client.filesCreateFolderV2({ path: fullPathRemote })
     }
 
-    async deleteDirectory(directoryPath) {
-        return this.client.filesDeleteV2({ path: directoryPath })
+    async deleteDirectory(relativeDirectoryPath) {
+        const fullPathRemote = path.join(this.baseDirRemote, relativeDirectoryPath)
+        return this.client.filesDeleteV2({ path: fullPathRemote })
     }
 
-    async longpoll(directoryPath) {
-        // https://www.dropbox.com/developers/documentation/http/documentation#files-list_folder
-        const fullPath = path.join(this.baseDir, directoryPath)
-
-        const latestCursorResponse = await this.client.filesListFolderGetLatestCursor({ path : fullPath })
-        const latestCursor = latestCursorResponse.result.cursor
-        console.log("latest cursor", latestCursor)
-        return this.client.filesListFolderLongpoll({ cursor: latestCursor, timeout: this.MIN_LONG_POLL_TIMEOUT })
+    async _getLatestFolderCursor(relativeDirectoryPath) {
+        const fullPathRemote = path.join(this.baseDirRemote, relativeDirectoryPath)
+        const latestCursorResponse = await this.client.filesListFolderGetLatestCursor({ path : fullPathRemote })
+        return latestCursorResponse.result.cursor
     }
 
-    async
+    async startLongpoll(relativeDirectoryPath) {
+        try {
+            const cursor = await this._getLatestFolderCursor(relativeDirectoryPath)
+            this._longpollHandler = this.client.filesListFolderLongpoll({ cursor: cursor, timeout: this.MIN_LONG_POLL_TIMEOUT })
+            .then((response) => {
+                this.emit(this.LONGPOLL_RESPONSE_RECEIVED, {
+                    path: relativeDirectoryPath,
+                    cursor: cursor,
+                    response: response
+                })
+            })
+            .catch((error) => {
+                this.emit(this.LONGPOLL_ERROR, {
+                    path: relativeDirectoryPath,
+                    error: error
+                })
+            })
+        } catch (error) {
+            this.emit(this.LONGPOLL_ERROR, {
+                path: relativeDirectoryPath,
+                error: error
+            })
+        }
+    }
 
+    stopLongpoll() {
+        this.removeAllListeners(this.LONGPOLL_ERROR)
+        this.removeAllListeners(this.LONGPOLL_RESPONSE_RECEIVED)
+    }
+
+    // async startLongpoll(directoryPath) {
+    //     return this._getLatestCursor(directoryPath)
+    //     .then((cursor) => {
+    //         return this.client.filesListFolderLongpoll({ cursor: cursor, timeout: this.MIN_LONG_POLL_TIMEOUT })
+    //     })
+    //     .then((response) => {
+    //         this.emit(this.LONGPOLL_RESPONSE_RECEIVED, {
+    //             path: directoryPath,
+    //             cursor: cursor,
+    //             response: response
+    //         })
+    //     })
+    //     .catch((err) => {
+    //         this.emit(this.LONGPOLL_ERROR, {
+    //             path: directoryPath,
+    //             error: err
+    //         })
+    //     })
+    // }
 }
 
 module.exports = {
