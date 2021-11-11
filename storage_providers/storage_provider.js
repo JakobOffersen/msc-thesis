@@ -3,6 +3,7 @@ const path = require("path")
 const { Dropbox } = require("dropbox")
 const EventEmitter = require('events')
 const { relative } = require("path")
+const { should } = require("chai")
 
 const abstract = () => { throw new Error("This method must be implemented by a subclass") }
 
@@ -45,6 +46,7 @@ class DropboxProvider extends StorageProvider {
         this.baseDirRemote = "/"
         this.on(this.LONGPOLL_RESPONSE_RECEIVED, this._longpollResponseListener.bind(this))
         this.on(this.LONGPOLL_ERROR, this._longpollErrorListener.bind(this))
+        this._shouldStopLongpoll = true
     }
 
     async _longpollResponseListener({ path, cursor, response }) {
@@ -88,7 +90,11 @@ class DropboxProvider extends StorageProvider {
 
         if (stat.size < this.MAX_UPLOAD_TRANSFER_SIZE) {
             const contents = await file.readFile()
-            await this.client.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
+            try {
+                await this.client.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
+            } catch (error) {
+                console.log("ERROR!!!!", error)
+            }
         } else {
             const CHUNK_SIZE = 8 * (1024 ** 2) // 8 MB
             let window = Buffer.alloc(CHUNK_SIZE)
@@ -168,10 +174,12 @@ class DropboxProvider extends StorageProvider {
     }
 
     async startLongpoll(relativeDirectoryPath) {
+        this._shouldStopLongpoll = false
         try {
             const cursor = await this._getLatestFolderCursor(relativeDirectoryPath)
             this._longpollHandler = this.client.filesListFolderLongpoll({ cursor: cursor, timeout: this.MIN_LONG_POLL_TIMEOUT })
             .then((response) => {
+                if (this._shouldStopLongpoll) return
                 this.emit(this.LONGPOLL_RESPONSE_RECEIVED, {
                     path: relativeDirectoryPath,
                     cursor: cursor,
@@ -179,12 +187,14 @@ class DropboxProvider extends StorageProvider {
                 })
             })
             .catch((error) => {
+                if (this._shouldStopLongpoll) return
                 this.emit(this.LONGPOLL_ERROR, {
                     path: relativeDirectoryPath,
                     error: error
                 })
             })
         } catch (error) {
+            if (this._shouldStopLongpoll) return
             this.emit(this.LONGPOLL_ERROR, {
                 path: relativeDirectoryPath,
                 error: error
@@ -193,8 +203,7 @@ class DropboxProvider extends StorageProvider {
     }
 
     stopLongpoll() {
-        this.removeAllListeners(this.LONGPOLL_ERROR)
-        this.removeAllListeners(this.LONGPOLL_RESPONSE_RECEIVED)
+        this._shouldStopLongpoll = true
     }
 
     // async startLongpoll(directoryPath) {
