@@ -1,11 +1,11 @@
 function inversePromise() {
-	var promiseResolve, promiseReject
-	const promise = new Promise((resolve, reject) => {
-		promiseResolve = resolve
-		promiseReject = reject
+	var resolve, reject
+	const promise = new Promise((_resolve, _reject) => {
+		resolve = _resolve
+		reject = _reject
 	})
 
-	return { promise, promiseResolve, promiseReject }
+	return { promise, resolve, reject }
 }
 
 module.exports = {

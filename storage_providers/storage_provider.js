@@ -90,11 +90,7 @@ class DropboxProvider extends StorageProvider {
 
         if (stat.size < this.MAX_UPLOAD_TRANSFER_SIZE) {
             const contents = await file.readFile()
-            try {
-                await this.client.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
-            } catch (error) {
-                console.log("ERROR!!!!", error)
-            }
+            await this.client.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
         } else {
             const CHUNK_SIZE = 8 * (1024 ** 2) // 8 MB
             let window = Buffer.alloc(CHUNK_SIZE)

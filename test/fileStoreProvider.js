@@ -53,7 +53,6 @@ describe("FSP", function () {
 		// tear-down fsp test-directory
 		try {
 			await fsp.deleteDirectory(testDirName)
-            console.log("after success")
 		} catch (err) {
 			assert.fail()
 		}
@@ -66,28 +65,28 @@ describe("FSP", function () {
 		}
 	})
 
+    // This test sets up a listener for changes in a folder, and then checks if
+    // the listener is called when a file is uploaded to the folder.
+    // We test the listener by having it resolve a promise ('promiseResolve)
+    // which the test is await'ing.
 	it("longpolling should emit new entries when they are uploaded to the FSP", async function () {
-		// This test sets up a listener for changes in a folder, and then checks if
-		// the listener is called when a file is uploaded to the folder.
-		// We test the listener by having it resolve a promise ('promiseResolve)
-		// which the test is await'ing.
-
 		const timeoutMs = 10 * 1000 // 10 seconds
 		this.timeout(timeoutMs) // set this test to fail after 10 seconds
 
 		const filename = "long-poll-test2.txt"
 
-		const { promise, promiseResolve, promiseReject } = inversePromise()
+		const { promise, resolve, reject } = inversePromise()
 
-		// we expect this handler to be called when a new file upload to the test-folder has succeeded
-		fsp.on(fsp.LONGPOLL_NEW_ENTRIES, ({ path, entries }) => {
+        const callback = async ({ entries }) => {
             // check if the new entry is the one we just uploaded
 			if (entries.length !== 1 || entries[0].name !== filename)
-				promiseReject() // fail the test
-			else {
-				promiseResolve() // succeed the test
-			}
-		})
+                reject() // fail the test
+            else {
+                resolve() // succeed the test
+            }
+        }
+		// we expect this handler to be called when a new file upload to the test-folder has succeeded
+		fsp.on(fsp.LONGPOLL_NEW_ENTRIES, callback)
 
 		await fsp.startLongpoll(testDirName)
 
@@ -99,15 +98,26 @@ describe("FSP", function () {
 		await fsp.upload(filePathRemote)
 
 		try {
-			await promise
+			await promise // This blocks until reject/resolve is called
 			assert.isTrue(true)
-		} catch (err) {
+		} catch {
             assert.fail()
 		} finally {
+            // Avoid interference with other tests by stopping polling and removing the added listener
 			fsp.stopLongpoll()
+            fsp.removeListener(fsp.LONGPOLL_NEW_ENTRIES, callback)
 		}
 	})
 
+    // This test sets up a listener for changes in a folder, and then checks if the
+    // listener is called two times for two changes to the folder.
+    // The flow is:
+    // 1) create the two local files to be uploaded later
+    // 2) setup and register the listener-callback
+    // 3) Upload the first file
+    // 4) Wait for the listener to be called with the uploaded file. If success, upload the second file
+    // 5) Wait for the listener to be called again with the second uploaded file. If sucess, we're done.
+    // The waiting in step 4 and 5 happen with inverted promises that are rejected/resolved from the outsite.
     it("longpolling should keep emiting file-changes when longpolling ", async function () {
 		const timeoutMs = 10 * 1000 // 10 seconds
 		this.timeout(timeoutMs) // set this test to fail after 10 seconds
@@ -118,48 +128,48 @@ describe("FSP", function () {
         await fs.writeFile(path.join(fullPathLocal, filename1), Date().toString())
         await fs.writeFile(path.join(fullPathLocal, filename2), Date().toString())
 
-        const inverse1 = inversePromise()
-        const inverse2 = inversePromise()
-        inverse1.called = false
+        const inversePromise1 = inversePromise()
+        const inversePromise2 = inversePromise()
+        inversePromise1.called = false
 
-		fsp.on(fsp.LONGPOLL_NEW_ENTRIES, async ({ entries }) => {
-            if (!inverse1.called) {
+        const callback = async ({ entries }) => {
+            if (!inversePromise1.called) {
                 // check the first upload
-                inverse1.called = true
+                inversePromise1.called = true
                 if (entries.length === 1 && entries[0].name === filename1) {
-                    inverse1.promiseResolve()
+                    inversePromise1.resolve()
                     // upload the second file
                     await fsp.upload(path.join(testDirName, filename2))
                 } else {
-                    inverse1.promiseReject()
+                    inversePromise1.reject()
                 }
             } else {
                 // check the second upload
                 if (entries.length === 1 && entries[0].name === filename2) {
-                    inverse2.promiseResolve()
+                    inversePromise2.resolve()
                 } else {
-                    inverse2.promiseReject()
+                    inversePromise2.reject()
                 }
             }
-		})
+        }
+
+		fsp.on(fsp.LONGPOLL_NEW_ENTRIES, callback)
 
 		await fsp.startLongpoll(testDirName)
 
 		// Upload the file 'filename1' to trigger the listener
-        try {
-            await fsp.upload(path.join(testDirName, filename1))
-        } catch (error) {
-            console.log("TEST ERROR!!!!", error)
-        }
+        await fsp.upload(path.join(testDirName, filename1))
 
 		try {
-			await inverse1.promise
-            await inverse2.promise
+			await inversePromise1.promise // this blocks until reject/resolve is called when the first file is emitted
+            await inversePromise2.promise // this blocks until reject/resolve is called when the second file is emitted
 			assert.isTrue(true)
 		} catch (err) {
             assert.fail()
 		} finally {
+            // Avoid interference with other tests by stopping polling and removing the added listener
 			fsp.stopLongpoll()
+            fsp.removeListener(fsp.LONGPOLL_NEW_ENTRIES, callback)
 		}
 	})
 })
