@@ -156,7 +156,7 @@ describe("FSP", function () {
 
 		await fsp.startLongpoll(testDirName)
 
-		// Upload the file 'filename1' to trigger the listener
+		// Upload the file 'filename1' to trigger the callback
         await fsp.upload(path.join(testDirName, filename1))
 
 		try {
@@ -171,4 +171,37 @@ describe("FSP", function () {
             fsp.removeListener(fsp.LONGPOLL_NEW_ENTRIES, callback)
 		}
 	})
+
+    it("longpolling should listen to folder-changes", async function () {
+        const timeoutMs = 10 * 1000
+        this.timeout(timeoutMs)
+        const { promise, reject, resolve } = inversePromise()
+
+        const dirname = "dirname"
+
+        function entryIsDirectoryWithName(entry, expectedName) { return entry['.tag'] === 'folder' && entry.name === expectedName }
+
+        const callback = async ({ entries }) => {
+            if (entries.length === 1 && entryIsDirectoryWithName(entries[0], dirname)) {
+                resolve() // mark the emit as successful
+            } else {
+                reject() // markfirst emit as failed
+            }
+        }
+
+        fsp.on(fsp.LONGPOLL_NEW_ENTRIES, callback)
+
+        try {
+            await fsp.startLongpoll(testDirName)
+            // create the new directory to trigger the callback
+            await fsp.createDirectory(path.join(testDirName, dirname))
+            await promise
+            assert.isTrue(true)
+        } catch {
+            assert.fail()
+        } finally {
+            fsp.stopLongpoll()
+            fsp.removeListener(fsp.LONGPOLL_NEW_ENTRIES, callback)
+        }
+    })
 })
