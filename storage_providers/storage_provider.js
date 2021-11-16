@@ -240,6 +240,8 @@ class DropboxProvider extends StorageProvider {
                 return
             }
         }
+        //TODO: Maybe request more revisions if none of the first 10 (default limit for .listRevisions) satisfy 'precondition'?
+        throw new Error("None of the " + entries.length + " entries matched the received precondition")
     }
 }
 
