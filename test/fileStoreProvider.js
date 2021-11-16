@@ -39,13 +39,23 @@ describe("FSP", function () {
 
     afterEach("Clear local and remote test-folder if needed", async function() {
         // Clear the local and remote folder
-        const filenames = await fs.readdir(fullPathLocal)
+        this.timeout(5 * 1000) // allow for 3 seconds per filename needed to be deleted from FSP
 
-        this.timeout(filenames.length * 3 * 1000) // allow for 3 seconds per filename needed to be deleted from FSP
+        // Clear remote folder by deleting it and creating it again
 
-        for (const filename of filenames) {
-            await fs.unlink(path.join(fullPathLocal, filename))
-            await fsp.delete(path.join(testDirName, filename))
+        try {
+            await fsp.delete(testDirName)
+            await fsp.createDirectory(testDirName)
+        } catch {
+            assert.fail()
+        }
+
+        // clear local folder by removing it and creating it again
+        try {
+            await fs.rm(fullPathLocal, { recursive: true, force: true })
+            await fs.mkdir(fullPathLocal)
+        } catch {
+            assert.fail()
         }
     })
 
@@ -172,9 +182,9 @@ describe("FSP", function () {
 		}
 	})
 
-    it("longpolling should listen to folder-changes", async function () {
+    it("longpolling should emit when a subfolder is created", async function () {
         const timeoutMs = 10 * 1000
-        this.timeout(timeoutMs)
+        this.timeout(timeoutMs) // set this test to fail after 10 seconds
         const { promise, reject, resolve } = inversePromise()
 
         const dirname = "dirname"
@@ -185,7 +195,8 @@ describe("FSP", function () {
             if (entries.length === 1 && entryIsDirectoryWithName(entries[0], dirname)) {
                 resolve() // mark the emit as successful
             } else {
-                reject() // markfirst emit as failed
+                const errorMessage = "Expected received entry to be a directory, but received " + entries[0]
+                reject(errorMessage) // markfirst emit as failed
             }
         }
 
@@ -197,8 +208,52 @@ describe("FSP", function () {
             await fsp.createDirectory(path.join(testDirName, dirname))
             await promise
             assert.isTrue(true)
-        } catch {
+        } catch (err) {
+            console.dir(err)
             assert.fail()
+        } finally {
+            fsp.stopLongpoll()
+            fsp.removeListener(fsp.LONGPOLL_NEW_ENTRIES, callback)
+        }
+    })
+
+    it("longpolling should emit when a deep-change occurs", async function() {
+        const timeoutMs = 10 * 1000
+        this.timeout(timeoutMs) // set this test to fail after 10 seconds
+        const { promise, reject, resolve } = inversePromise()
+
+        const dirname = "dirname"
+        const filename = "filename"
+        const subfolderPathLocal = path.join(fullPathLocal, dirname)
+        const subfolderPathRemote = path.join(testDirName, dirname)
+
+        try {
+            // setup sub-folder and sub-file
+            await fs.mkdir(subfolderPathLocal)
+            await fs.writeFile(path.join(subfolderPathLocal, filename), Date.toString())
+
+            // setup remote subfolder
+            await fsp.createDirectory(subfolderPathRemote)
+        } catch (err) {
+            console.dir(err, { maxArrayLength: null })
+            return assert.fail(err)
+        }
+
+        // setup longpoll
+        const callback = async ({ entries } ) => {
+            //TODO: Check if entries include the file named "filename" in the subfolder
+            resolve()
+        }
+        fsp.on(fsp.LONGPOLL_NEW_ENTRIES, callback)
+
+        try {
+            await fsp.startLongpoll(testDirName) // listen to parent-folder
+
+            // upload test-file in sub-folder to trigger
+            await fsp.upload(path.join(subfolderPathRemote, filename))
+            await promise
+        } catch (err) {
+            assert.fail(err)
         } finally {
             fsp.stopLongpoll()
             fsp.removeListener(fsp.LONGPOLL_NEW_ENTRIES, callback)
