@@ -57,7 +57,7 @@ const teardownLocalAndRemoteTestFolder = async (testFolderName) => {
 }
 
 describe("FSP", function () {
-	describe("long poll", function () {
+	describe.skip("long poll", function () {
 		before("setup local and remote test-folder", async function () {
 			await setupLocalAndRemoteTestFolder(longpollDirName)
 		})
@@ -298,8 +298,40 @@ describe("FSP", function () {
 			await teardownLocalAndRemoteTestFolder(rollbackDirName)
 		})
 
-		it("rollback file with ID to latest non-deleted version", async function () {
-			// We upload a file
+		it("rollback file to latest non-deleted version", async function () {
+            this.timeout(10 * 1000) // fail test after 10 seconds
+            // setup local test-file
+            const filename = "filename.txt"
+            const filecontent = Buffer.from("hello world")
+            const relativeFilepath = path.join(rollbackDirName, filename)
+            const localFilePath = path.join(__dirname, relativeFilepath)
+            await fs.writeFile(localFilePath, filecontent)
+
+            // upload test-file
+
+            await fsp.upload(relativeFilepath)
+
+            // delete file locally and remotely
+            await fs.unlink(localFilePath)
+            await fsp.delete(relativeFilepath)
+
+            // Check if file is marked as deleted at fsp
+            const { is_deleted } = await fsp.listRevisions(relativeFilepath) // From doc: "Only revisions that are not deleted will show up [in 'entries']."
+            assert.isTrue(is_deleted)
+
+            // Check the local file is deleted
+            try {
+                await fs.access(localFilePath)
+                assert.fail() // we expect '.access' to throw. If it does not, we should fail
+            } catch {}
+
+            // rollback file remotely
+            await fsp.rollbackDelete(relativeFilepath)
+
+            // Check if the file is now downloadable again
+            await fsp.downloadFile(relativeFilepath)
+            const content = await fs.readFile(localFilePath)
+            assert.isTrue(Buffer.compare(filecontent, content) === 0) // .compare returns 0 if the two buffers are equal
 		})
 	})
 })

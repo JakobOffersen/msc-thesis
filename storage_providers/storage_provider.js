@@ -2,8 +2,6 @@ const fs = require("fs/promises")
 const path = require("path")
 const { Dropbox } = require("dropbox")
 const EventEmitter = require('events')
-const { relative } = require("path")
-const { should } = require("chai")
 
 const abstract = () => { throw new Error("This method must be implemented by a subclass") }
 
@@ -24,6 +22,8 @@ class StorageProvider extends EventEmitter {
     async deleteDirectory(directoryPath) { abstract() }
     async startLongpoll(directoryPath) { abstract() }
     async stopLongpoll() { abstract() }
+    async rollbackDelete(filePath) { abstract() }
+    async listRevisions(filePath) { abstract() }
 
 }
 
@@ -140,7 +140,14 @@ class DropboxProvider extends StorageProvider {
     async downloadFile(relativeFilePath) {
         const fullPathLocal = path.join(this.baseDirLocal, relativeFilePath)
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
-        const file = await fs.open(fullPathLocal, "r+")
+
+        var file
+        try {
+            file = await fs.open(fullPathLocal, "r+") // 'r+': Open file for reading and writing. An exception occurs if the file does not exist.
+        } catch (error) {
+            if (error.code === "ENOENT") file = await fs.open(fullPathLocal, "w+") // 'w+': Open file for reading and writing. The file is created (if it does not exist) or truncated (if it exists).
+            else throw error
+        }
         const response = await this.client.filesDownload({ path: fullPathRemote })
         const result = response.result
 
@@ -200,6 +207,23 @@ class DropboxProvider extends StorageProvider {
 
     stopLongpoll() {
         this._shouldStopLongpoll = true
+    }
+
+    async rollbackDelete(relativeFilePath) {
+        const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
+        const { is_deleted, entries } = await this.listRevisions(relativeFilePath) // From doc: "Only revisions that are not deleted will show up [in 'entries']."
+
+        if (!is_deleted) return
+
+        const latestNonDeletedEntry = entries[0]
+
+        await this.client.filesRestore( { path: fullPathRemote, rev: latestNonDeletedEntry.rev })
+    }
+
+    async listRevisions(relativeFilePath) {
+        const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
+        const response = await this.client.filesListRevisions({ path: fullPathRemote, mode: "path" })
+        return response.result
     }
 }
 
