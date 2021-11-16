@@ -14,7 +14,6 @@ const dropboxApp = {
 // local paths
 const longpollDirName = "test-longpoll"
 const rollbackDirName = "test-rollback"
-const longpollFullPathLocal = path.join(__dirname, longpollDirName)
 
 const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
 
@@ -104,7 +103,7 @@ describe("FSP", function () {
 			await fsp.startLongpoll(longpollDirName)
 
 			// Create and upload a test-file to trigger the listener
-			const filepathLocal = path.join(longpollFullPathLocal, filename)
+			const filepathLocal = path.join(__dirname, longpollDirName, filename)
 			const filePathRemote = path.join(longpollDirName, filename)
 
 			await fs.writeFile(filepathLocal, Date().toString())
@@ -139,11 +138,11 @@ describe("FSP", function () {
 			const filename1 = "long-poll-test1.txt"
 			const filename2 = "long-poll-test2.txt"
 			await fs.writeFile(
-				path.join(longpollFullPathLocal, filename1),
+				path.join(__dirname, longpollDirName, filename1),
 				Date().toString()
 			)
 			await fs.writeFile(
-				path.join(longpollFullPathLocal, filename2),
+				path.join(__dirname, longpollDirName, filename2),
 				Date().toString()
 			)
 
@@ -240,7 +239,7 @@ describe("FSP", function () {
 
 			const dirname = "dirname"
 			const filename = "filename"
-			const subfolderPathLocal = path.join(longpollFullPathLocal, dirname)
+			const subfolderPathLocal = path.join(__dirname, longpollDirName, dirname)
 			const subfolderPathRemote = path.join(longpollDirName, dirname)
 
 			try {
