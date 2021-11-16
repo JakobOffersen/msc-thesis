@@ -137,18 +137,17 @@ describe("FSP", function () {
                 // check the first upload
                 inversePromise1.called = true
                 if (entries.length === 1 && entries[0].name === filename1) {
-                    inversePromise1.resolve()
-                    // upload the second file
+                    inversePromise1.resolve() // mark the first emit as successful
                     await fsp.upload(path.join(testDirName, filename2))
                 } else {
-                    inversePromise1.reject()
+                    inversePromise1.reject() // mark the first emit as failed
                 }
             } else {
                 // check the second upload
                 if (entries.length === 1 && entries[0].name === filename2) {
-                    inversePromise2.resolve()
+                    inversePromise2.resolve() // mark the second emit as successful
                 } else {
-                    inversePromise2.reject()
+                    inversePromise2.reject() // mark the second emit as failed
                 }
             }
         }

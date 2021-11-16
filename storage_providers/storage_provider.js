@@ -201,26 +201,6 @@ class DropboxProvider extends StorageProvider {
     stopLongpoll() {
         this._shouldStopLongpoll = true
     }
-
-    // async startLongpoll(directoryPath) {
-    //     return this._getLatestCursor(directoryPath)
-    //     .then((cursor) => {
-    //         return this.client.filesListFolderLongpoll({ cursor: cursor, timeout: this.MIN_LONG_POLL_TIMEOUT })
-    //     })
-    //     .then((response) => {
-    //         this.emit(this.LONGPOLL_RESPONSE_RECEIVED, {
-    //             path: directoryPath,
-    //             cursor: cursor,
-    //             response: response
-    //         })
-    //     })
-    //     .catch((err) => {
-    //         this.emit(this.LONGPOLL_ERROR, {
-    //             path: directoryPath,
-    //             error: err
-    //         })
-    //     })
-    // }
 }
 
 module.exports = {
