@@ -80,7 +80,7 @@ describe("FSP", function () {
 		// the listener is called when a file is uploaded to the folder.
 		// We test the listener by having it resolve a promise ('promiseResolve)
 		// which the test is await'ing.
-		it("longpolling should emit new entries when they are uploaded to the FSP", async function () {
+		it("should emit new entries when they are uploaded to the FSP", async function () {
 			const timeoutMs = 10 * 1000 // 10 seconds
 			this.timeout(timeoutMs) // set this test to fail after 10 seconds
 
@@ -130,7 +130,7 @@ describe("FSP", function () {
 		// 4) Wait for the listener to be called with the uploaded file. If success, upload the second file
 		// 5) Wait for the listener to be called again with the second uploaded file. If sucess, we're done.
 		// The waiting in step 4 and 5 happen with inverted promises that are rejected/resolved from the outsite.
-		it("longpolling should keep emiting file-changes when longpolling ", async function () {
+		it("should keep emiting file-changes when longpolling ", async function () {
 			const timeoutMs = 10 * 1000 // 10 seconds
 			this.timeout(timeoutMs) // set this test to fail after 10 seconds
 
@@ -190,7 +190,7 @@ describe("FSP", function () {
 			}
 		})
 
-		it("longpolling should emit when a subfolder is created", async function () {
+		it("should emit when a subfolder is created", async function () {
 			const timeoutMs = 10 * 1000
 			this.timeout(timeoutMs) // set this test to fail after 10 seconds
 			const { promise, reject, resolve } = inversePromise()
@@ -232,7 +232,7 @@ describe("FSP", function () {
 			}
 		})
 
-		it("longpolling should emit when a deep-change occurs", async function () {
+		it.skip("should emit when a deep-change occurs", async function () {
 			const timeoutMs = 10 * 1000
 			this.timeout(timeoutMs) // set this test to fail after 10 seconds
 			const { promise, reject, resolve } = inversePromise()
@@ -298,7 +298,7 @@ describe("FSP", function () {
 			await teardownLocalAndRemoteTestFolder(rollbackDirName)
 		})
 
-		it("rollback file to latest non-deleted version", async function () {
+		it("rollbackDelete(relativeFilepath) should rollback file to latest non-deleted version", async function () {
             this.timeout(10 * 1000) // fail test after 10 seconds
             // setup local test-file
             const filename = "filename.txt"
@@ -308,7 +308,6 @@ describe("FSP", function () {
             await fs.writeFile(localFilePath, filecontent)
 
             // upload test-file
-
             await fsp.upload(relativeFilepath)
 
             // delete file locally and remotely
@@ -333,5 +332,35 @@ describe("FSP", function () {
             const content = await fs.readFile(localFilePath)
             assert.isTrue(Buffer.compare(filecontent, content) === 0) // .compare returns 0 if the two buffers are equal
 		})
+
+        it("rollbackToLatestRevisionWhere(relativeFilePath, precondition) should rollback to latest revision that satisfies the 'precondition'", async function() {
+            // Setup
+            this.timeout(30 * 1000)
+            const filename = "filename2.txt"
+            const content1 = Buffer.from("initial")
+            const content2 = Buffer.from("content2")
+            const content3 = Buffer.from("content3")
+
+            const relativeFilePath = path.join(rollbackDirName, filename)
+            const localFilePath = path.join(__dirname, relativeFilePath)
+
+            for (c of [content1, content2, content3]) {
+                // Make local file and upload
+                await fs.writeFile(localFilePath, c)
+                await fsp.upload(relativeFilePath)
+            }
+
+            // Action
+            const precondition = (content) => {
+                return Buffer.compare(content, content2) === 0
+            }
+            await fsp.rollbackToLatestRevisionWhere(relativeFilePath, precondition)
+
+            // Check
+            await fsp.downloadFile(relativeFilePath)
+            const content = await fs.readFile(localFilePath)
+            assert.isTrue(Buffer.compare(content2, content) === 0) // .compare returns 0 if the two buffers are equal
+        })
+
 	})
 })

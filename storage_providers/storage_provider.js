@@ -24,7 +24,7 @@ class StorageProvider extends EventEmitter {
     async stopLongpoll() { abstract() }
     async rollbackDelete(filePath) { abstract() }
     async listRevisions(filePath) { abstract() }
-
+    async rollbackToLatestRevisionWhere(relativeFilePath, precondition) { abstract() }
 }
 
 class DropboxProvider extends StorageProvider {
@@ -152,7 +152,6 @@ class DropboxProvider extends StorageProvider {
         const result = response.result
 
         await fs.writeFile(file, result.fileBinary, "binary")
-        console.log(`File: ${result.name} saved as ${path}.`)
     }
 
     async delete(relativePath) {
@@ -224,6 +223,23 @@ class DropboxProvider extends StorageProvider {
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
         const response = await this.client.filesListRevisions({ path: fullPathRemote, mode: "path" })
         return response.result
+    }
+
+    async rollbackToLatestRevisionWhere(relativeFilePath, precondition) {
+        const { entries } = await this.listRevisions(relativeFilePath)
+
+        // enumerate back through revisions until 'until' is met
+        for (const entry of entries) {
+            const response = await this.client.filesDownload( { path: "rev:" + entry.rev })
+            const fileBinary = response.result.fileBinary
+
+            // Restore the file when precondition 'until' is met
+            if (precondition(fileBinary)) {
+                const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
+                await this.client.filesRestore( { path: fullPathRemote, rev: entry.rev })
+                return
+            }
+        }
     }
 }
 
