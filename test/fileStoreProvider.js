@@ -11,18 +11,25 @@ const dropboxApp = {
 		"rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W",
 }
 
+// local paths
+const longpollDirName = "test-longpoll"
+const rollbackDirName = "test-rollback"
+const longpollFullPathLocal = path.join(__dirname, longpollDirName)
+
+const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
+
 // before(each)/after(each) handlers
-const setupLocalAndRemoteTestFolder = async () => {
+const setupLocalAndRemoteTestFolder = async (testFolderName) => {
 	// setup local test-dir if needed
 	try {
-		await fs.access(fullPathLocal)
+		await fs.access(path.join(__dirname, testFolderName))
 	} catch {
-		await fs.mkdir(fullPathLocal)
+		await fs.mkdir(path.join(__dirname, testFolderName))
 	}
 
 	try {
 		// Create FSP test-directory if it does not already exist
-		await fsp.createDirectory(testDirName)
+		await fsp.createDirectory(testFolderName)
 	} catch (err) {
 		// if 409 is returned, it means the folder already exist.
 		if (err.status !== 409) {
@@ -31,34 +38,29 @@ const setupLocalAndRemoteTestFolder = async () => {
 	}
 }
 
-const clearLocalAndRemoteTestFolderIfNecessary = async () => {
+const clearLocalAndRemoteTestFolderIfNecessary = async (testFolderName) => {
 	// Clear remote folder by deleting it and creating it again
-	await fsp.delete(testDirName)
-	await fsp.createDirectory(testDirName)
+	await fsp.delete(testFolderName)
+	await fsp.createDirectory(testFolderName)
 
 	// clear local folder by removing it and creating it again
-	await fs.rm(fullPathLocal, { recursive: true, force: true })
-	await fs.mkdir(fullPathLocal)
+    const localTestPath = path.join(__dirname, testFolderName)
+	await fs.rm(localTestPath, { recursive: true, force: true })
+	await fs.mkdir(localTestPath)
 }
 
-const teardownLocalAndRemoteTestFolder = async () => {
+const teardownLocalAndRemoteTestFolder = async (testFolderName) => {
 	// tear-down fsp test-directory
-	await fsp.deleteDirectory(testDirName)
+	await fsp.deleteDirectory(testFolderName)
 
 	// tear-down local test directory
-	await fs.rm(fullPathLocal, { recursive: true, force: true })
+	await fs.rm(path.join(__dirname, testFolderName), { recursive: true, force: true })
 }
-
-// local paths
-const testDirName = "test-longpoll"
-const fullPathLocal = path.join(__dirname, testDirName)
-
-const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
 
 describe("FSP", function () {
 	describe("long poll", function () {
 		before("setup local and remote test-folder", async function () {
-			await setupLocalAndRemoteTestFolder()
+			await setupLocalAndRemoteTestFolder(longpollDirName)
 		})
 
 		afterEach(
@@ -66,13 +68,13 @@ describe("FSP", function () {
 			async function () {
 				// Clear the local and remote folder
 				this.timeout(5 * 1000) // allow for 3 seconds per filename needed to be deleted from FSP
-				await clearLocalAndRemoteTestFolderIfNecessary()
+				await clearLocalAndRemoteTestFolderIfNecessary(longpollDirName)
 			}
 		)
 
 		after("tear-down local test folder", async function () {
             this.timeout(10 * 1000)
-			await teardownLocalAndRemoteTestFolder()
+			await teardownLocalAndRemoteTestFolder(longpollDirName)
 		})
 
 		// This test sets up a listener for changes in a folder, and then checks if
@@ -99,11 +101,11 @@ describe("FSP", function () {
 			// we expect this handler to be called when a new file upload to the test-folder has succeeded
 			fsp.on(fsp.LONGPOLL_NEW_ENTRIES, callback)
 
-			await fsp.startLongpoll(testDirName)
+			await fsp.startLongpoll(longpollDirName)
 
 			// Create and upload a test-file to trigger the listener
-			const filepathLocal = path.join(fullPathLocal, filename)
-			const filePathRemote = path.join(testDirName, filename)
+			const filepathLocal = path.join(longpollFullPathLocal, filename)
+			const filePathRemote = path.join(longpollDirName, filename)
 
 			await fs.writeFile(filepathLocal, Date().toString())
 			await fsp.upload(filePathRemote)
@@ -137,11 +139,11 @@ describe("FSP", function () {
 			const filename1 = "long-poll-test1.txt"
 			const filename2 = "long-poll-test2.txt"
 			await fs.writeFile(
-				path.join(fullPathLocal, filename1),
+				path.join(longpollFullPathLocal, filename1),
 				Date().toString()
 			)
 			await fs.writeFile(
-				path.join(fullPathLocal, filename2),
+				path.join(longpollFullPathLocal, filename2),
 				Date().toString()
 			)
 
@@ -155,7 +157,7 @@ describe("FSP", function () {
 					inversePromise1.called = true
 					if (entries.length === 1 && entries[0].name === filename1) {
 						inversePromise1.resolve() // mark the first emit as successful
-						await fsp.upload(path.join(testDirName, filename2))
+						await fsp.upload(path.join(longpollDirName, filename2))
 					} else {
 						inversePromise1.reject() // mark the first emit as failed
 					}
@@ -171,10 +173,10 @@ describe("FSP", function () {
 
 			fsp.on(fsp.LONGPOLL_NEW_ENTRIES, callback)
 
-			await fsp.startLongpoll(testDirName)
+			await fsp.startLongpoll(longpollDirName)
 
 			// Upload the file 'filename1' to trigger the callback
-			await fsp.upload(path.join(testDirName, filename1))
+			await fsp.upload(path.join(longpollDirName, filename1))
 
 			try {
 				await inversePromise1.promise // this blocks until reject/resolve is called when the first file is emitted
@@ -217,9 +219,9 @@ describe("FSP", function () {
 			fsp.on(fsp.LONGPOLL_NEW_ENTRIES, callback)
 
 			try {
-				await fsp.startLongpoll(testDirName)
+				await fsp.startLongpoll(longpollDirName)
 				// create the new directory to trigger the callback
-				await fsp.createDirectory(path.join(testDirName, dirname))
+				await fsp.createDirectory(path.join(longpollDirName, dirname))
 				await promise
 				assert.isTrue(true)
 			} catch (err) {
@@ -238,8 +240,8 @@ describe("FSP", function () {
 
 			const dirname = "dirname"
 			const filename = "filename"
-			const subfolderPathLocal = path.join(fullPathLocal, dirname)
-			const subfolderPathRemote = path.join(testDirName, dirname)
+			const subfolderPathLocal = path.join(longpollFullPathLocal, dirname)
+			const subfolderPathRemote = path.join(longpollDirName, dirname)
 
 			try {
 				// setup sub-folder and sub-file
@@ -264,7 +266,7 @@ describe("FSP", function () {
 			fsp.on(fsp.LONGPOLL_NEW_ENTRIES, callback)
 
 			try {
-				await fsp.startLongpoll(testDirName) // listen to parent-folder
+				await fsp.startLongpoll(longpollDirName) // listen to parent-folder
 
 				// upload test-file in sub-folder to trigger
 				await fsp.upload(path.join(subfolderPathRemote, filename))
@@ -275,6 +277,30 @@ describe("FSP", function () {
 				fsp.stopLongpoll()
 				fsp.removeListener(fsp.LONGPOLL_NEW_ENTRIES, callback)
 			}
+		})
+	})
+
+    describe("rollback", function () {
+        before("setup local and remote test-folder", async function () {
+			await setupLocalAndRemoteTestFolder(rollbackDirName)
+		})
+
+		afterEach(
+			"Clear local and remote test-folder if necessary",
+			async function () {
+				// Clear the local and remote folder
+				this.timeout(5 * 1000) // allow for 3 seconds per filename needed to be deleted from FSP
+				await clearLocalAndRemoteTestFolderIfNecessary(rollbackDirName)
+			}
+		)
+
+		after("tear-down local test folder", async function () {
+            this.timeout(10 * 1000)
+			await teardownLocalAndRemoteTestFolder(rollbackDirName)
+		})
+
+		it("rollback file with ID to latest non-deleted version", async function () {
+			// We upload a file
 		})
 	})
 })
