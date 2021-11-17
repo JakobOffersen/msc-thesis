@@ -142,7 +142,7 @@ class DropboxProvider extends StorageProvider {
 
     }
 
-    async downloadFile(relativeFilePath) {
+    async downloadFile(relativeFilePath, { shouldWriteToDisk = true }) {
         const fullPathLocal = path.join(this.baseDirLocal, relativeFilePath)
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
 
@@ -153,7 +153,11 @@ class DropboxProvider extends StorageProvider {
             const response = await this.client.filesDownload({ path: fullPathRemote })
             const result = response.result
 
-            await fs.writeFile(file, result.fileBinary, "binary")
+            if (shouldWriteToDisk) {
+                await fs.writeFile(file, result.fileBinary, "binary")
+            }
+
+            return result.fileBinary
         } catch (error) {
             throw error
         } finally {
@@ -168,12 +172,12 @@ class DropboxProvider extends StorageProvider {
 
     async createDirectory(relativeDirectoryPath) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeDirectoryPath)
-        return this.client.filesCreateFolderV2({ path: fullPathRemote })
+        return await this.client.filesCreateFolderV2({ path: fullPathRemote })
     }
 
     async deleteDirectory(relativeDirectoryPath) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeDirectoryPath)
-        return this.client.filesDeleteV2({ path: fullPathRemote })
+        return await this.client.filesDeleteV2({ path: fullPathRemote })
     }
 
     async _getLatestFolderCursor(relativeDirectoryPath) {
@@ -232,7 +236,7 @@ class DropboxProvider extends StorageProvider {
         return response.result
     }
 
-    async rollbackToLatestRevisionWhere(relativeFilePath, precondition) {
+    async rollbackToLatestRevisionWhere(relativeFilePath, predicate) {
         const { entries } = await this.listRevisions(relativeFilePath)
 
         // enumerate back through revisions until 'until' is met
@@ -240,8 +244,8 @@ class DropboxProvider extends StorageProvider {
             const response = await this.client.filesDownload( { path: "rev:" + entry.rev })
             const fileBinary = response.result.fileBinary
 
-            // Restore the file when precondition 'until' is met
-            if (precondition(fileBinary)) {
+            // Restore the file when predicate is satisfied
+            if (predicate(fileBinary)) {
                 const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
                 await this.client.filesRestore( { path: fullPathRemote, rev: entry.rev })
                 return
@@ -253,5 +257,5 @@ class DropboxProvider extends StorageProvider {
 }
 
 module.exports = {
-    DropboxProvider
+    DropboxProvider, StorageProvider
 }

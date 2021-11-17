@@ -2,7 +2,7 @@ const assert = require("chai").assert
 const { DropboxProvider } = require("../storage_providers/storage_provider")
 const path = require("path")
 const fs = require("fs/promises")
-const { inversePromise } = require("./testUtil")
+const { inversePromise, clearLocalAndRemoteTestFolderIfNecessary, setupLocalAndRemoteTestFolder, teardownLocalAndRemoteTestFolder } = require("./testUtil")
 
 const dropboxApp = {
 	key: "b2gdry5rbkoq1jm",
@@ -17,66 +17,24 @@ const rollbackDirName = "test-rollback"
 
 const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
 
-// before(each)/after(each) handlers
-const setupLocalAndRemoteTestFolder = async (testFolderName) => {
-	// setup local test-dir if needed
-	try {
-		await fs.access(path.join(__dirname, testFolderName))
-	} catch {
-		await fs.mkdir(path.join(__dirname, testFolderName))
-	}
-
-	try {
-		// Create FSP test-directory if it does not already exist
-		await fsp.createDirectory(testFolderName)
-	} catch (err) {
-		// if 409 is returned, it means the folder already exist.
-		if (err.status !== 409) {
-			throw err
-		}
-	}
-}
-
-const clearLocalAndRemoteTestFolderIfNecessary = async (testFolderName) => {
-	// Clear remote folder by deleting it and creating it again
-	await fsp.delete(testFolderName)
-	await fsp.createDirectory(testFolderName)
-
-	// clear local folder by removing it and creating it again
-	const localTestPath = path.join(__dirname, testFolderName)
-	await fs.rm(localTestPath, { recursive: true, force: true })
-	await fs.mkdir(localTestPath)
-}
-
-const teardownLocalAndRemoteTestFolder = async (testFolderName) => {
-	// tear-down fsp test-directory
-	await fsp.deleteDirectory(testFolderName)
-
-	// tear-down local test directory
-	await fs.rm(path.join(__dirname, testFolderName), {
-		recursive: true,
-		force: true,
-	})
-}
-
-describe("FSP", function () {
+describe.skip("FSP", function () {
 	describe("long poll", function () {
 		before("setup local and remote test-folder", async function () {
-			await setupLocalAndRemoteTestFolder(longpollDirName)
+			await setupLocalAndRemoteTestFolder(__dirname, longpollDirName, fsp)
 		})
 
 		afterEach(
 			"Clear local and remote test-folder if necessary",
 			async function () {
 				// Clear the local and remote folder
-				this.timeout(5 * 1000) // allow for 3 seconds per filename needed to be deleted from FSP
-				await clearLocalAndRemoteTestFolderIfNecessary(longpollDirName)
+				this.timeout(5 * 1000) // allow for 5 seconds per filename needed to be deleted from FSP
+				await clearLocalAndRemoteTestFolderIfNecessary(__dirname, longpollDirName, fsp)
 			}
 		)
 
 		after("tear-down local test folder", async function () {
 			this.timeout(10 * 1000)
-			await teardownLocalAndRemoteTestFolder(longpollDirName)
+			await teardownLocalAndRemoteTestFolder(__dirname, longpollDirName, fsp)
 		})
 
 		// This test sets up a listener for changes in a folder, and then checks if
@@ -284,7 +242,7 @@ describe("FSP", function () {
 
 	describe("rollback", function () {
 		before("setup local and remote test-folder", async function () {
-			await setupLocalAndRemoteTestFolder(rollbackDirName)
+			await setupLocalAndRemoteTestFolder(__dirname, rollbackDirName, fsp)
 		})
 
 		afterEach(
@@ -292,13 +250,13 @@ describe("FSP", function () {
 			async function () {
 				// Clear the local and remote folder
 				this.timeout(5 * 1000) // allow for 3 seconds per filename needed to be deleted from FSP
-				await clearLocalAndRemoteTestFolderIfNecessary(rollbackDirName)
+				await clearLocalAndRemoteTestFolderIfNecessary(__dirname, rollbackDirName, fsp)
 			}
 		)
 
 		after("tear-down local test folder", async function () {
 			this.timeout(10 * 1000)
-			await teardownLocalAndRemoteTestFolder(rollbackDirName)
+			await teardownLocalAndRemoteTestFolder(__dirname, rollbackDirName, fsp)
 		})
 
 		it("rollbackDelete(relativeFilepath) should rollback file to latest non-deleted version", async function () {
