@@ -43,7 +43,7 @@ const clearLocalAndRemoteTestFolderIfNecessary = async (testFolderName) => {
 	await fsp.createDirectory(testFolderName)
 
 	// clear local folder by removing it and creating it again
-    const localTestPath = path.join(__dirname, testFolderName)
+	const localTestPath = path.join(__dirname, testFolderName)
 	await fs.rm(localTestPath, { recursive: true, force: true })
 	await fs.mkdir(localTestPath)
 }
@@ -53,11 +53,14 @@ const teardownLocalAndRemoteTestFolder = async (testFolderName) => {
 	await fsp.deleteDirectory(testFolderName)
 
 	// tear-down local test directory
-	await fs.rm(path.join(__dirname, testFolderName), { recursive: true, force: true })
+	await fs.rm(path.join(__dirname, testFolderName), {
+		recursive: true,
+		force: true,
+	})
 }
 
 describe("FSP", function () {
-	describe.skip("long poll", function () {
+	describe("long poll", function () {
 		before("setup local and remote test-folder", async function () {
 			await setupLocalAndRemoteTestFolder(longpollDirName)
 		})
@@ -72,7 +75,7 @@ describe("FSP", function () {
 		)
 
 		after("tear-down local test folder", async function () {
-            this.timeout(10 * 1000)
+			this.timeout(10 * 1000)
 			await teardownLocalAndRemoteTestFolder(longpollDirName)
 		})
 
@@ -103,7 +106,11 @@ describe("FSP", function () {
 			await fsp.startLongpoll(longpollDirName)
 
 			// Create and upload a test-file to trigger the listener
-			const filepathLocal = path.join(__dirname, longpollDirName, filename)
+			const filepathLocal = path.join(
+				__dirname,
+				longpollDirName,
+				filename
+			)
 			const filePathRemote = path.join(longpollDirName, filename)
 
 			await fs.writeFile(filepathLocal, Date().toString())
@@ -137,14 +144,9 @@ describe("FSP", function () {
 			// Prepare local files
 			const filename1 = "long-poll-test1.txt"
 			const filename2 = "long-poll-test2.txt"
-			await fs.writeFile(
-				path.join(__dirname, longpollDirName, filename1),
-				Date().toString()
-			)
-			await fs.writeFile(
-				path.join(__dirname, longpollDirName, filename2),
-				Date().toString()
-			)
+
+			await fs.writeFile(path.join(__dirname, longpollDirName, filename1), Date().toString())
+			await fs.writeFile(path.join(__dirname, longpollDirName, filename2), Date().toString())
 
 			const inversePromise1 = inversePromise()
 			const inversePromise2 = inversePromise()
@@ -239,16 +241,17 @@ describe("FSP", function () {
 
 			const dirname = "dirname"
 			const filename = "filename"
-			const subfolderPathLocal = path.join(__dirname, longpollDirName, dirname)
+			const subfolderPathLocal = path.join(
+				__dirname,
+				longpollDirName,
+				dirname
+			)
 			const subfolderPathRemote = path.join(longpollDirName, dirname)
 
 			try {
 				// setup sub-folder and sub-file
 				await fs.mkdir(subfolderPathLocal)
-				await fs.writeFile(
-					path.join(subfolderPathLocal, filename),
-					Date.toString()
-				)
+				await fs.writeFile(path.join(subfolderPathLocal, filename), Date.toString())
 
 				// setup remote subfolder
 				await fsp.createDirectory(subfolderPathRemote)
@@ -279,8 +282,8 @@ describe("FSP", function () {
 		})
 	})
 
-    describe("rollback", function () {
-        before("setup local and remote test-folder", async function () {
+	describe("rollback", function () {
+		before("setup local and remote test-folder", async function () {
 			await setupLocalAndRemoteTestFolder(rollbackDirName)
 		})
 
@@ -294,73 +297,76 @@ describe("FSP", function () {
 		)
 
 		after("tear-down local test folder", async function () {
-            this.timeout(10 * 1000)
+			this.timeout(10 * 1000)
 			await teardownLocalAndRemoteTestFolder(rollbackDirName)
 		})
 
 		it("rollbackDelete(relativeFilepath) should rollback file to latest non-deleted version", async function () {
-            this.timeout(10 * 1000) // fail test after 10 seconds
-            // setup local test-file
-            const filename = "filename.txt"
-            const filecontent = Buffer.from("hello world")
-            const relativeFilepath = path.join(rollbackDirName, filename)
-            const localFilePath = path.join(__dirname, relativeFilepath)
-            await fs.writeFile(localFilePath, filecontent)
+			this.timeout(10 * 1000) // fail test after 10 seconds
+			// setup local test-file
+			const filename = "filename.txt"
+			const filecontent = Buffer.from("hello world")
+			const relativeFilepath = path.join(rollbackDirName, filename)
+			const localFilePath = path.join(__dirname, relativeFilepath)
 
-            // upload test-file
-            await fsp.upload(relativeFilepath)
+			await fs.writeFile(localFilePath, filecontent)
 
-            // delete file locally and remotely
-            await fs.unlink(localFilePath)
-            await fsp.delete(relativeFilepath)
+			// upload test-file
+			await fsp.upload(relativeFilepath)
 
-            // Check if file is marked as deleted at fsp
-            const { is_deleted } = await fsp.listRevisions(relativeFilepath) // From doc: "Only revisions that are not deleted will show up [in 'entries']."
-            assert.isTrue(is_deleted)
+			// delete file locally and remotely
+			await fs.unlink(localFilePath)
+			await fsp.delete(relativeFilepath)
 
-            // Check the local file is deleted
-            try {
-                await fs.access(localFilePath)
-                assert.fail() // we expect '.access' to throw. If it does not, we should fail
-            } catch {}
+			// Check if file is marked as deleted at fsp
+			const { is_deleted } = await fsp.listRevisions(relativeFilepath) // From doc: "Only revisions that are not deleted will show up [in 'entries']."
+			assert.isTrue(is_deleted)
 
-            // rollback file remotely
-            await fsp.rollbackDelete(relativeFilepath)
+			// Check the local file is deleted
+			try {
+				await fs.access(localFilePath)
+				assert.fail() // we expect '.access' to throw. If it does not, we should fail
+			} catch {}
 
-            // Check if the file is now downloadable again
-            await fsp.downloadFile(relativeFilepath)
-            const content = await fs.readFile(localFilePath)
-            assert.isTrue(Buffer.compare(filecontent, content) === 0) // .compare returns 0 if the two buffers are equal
+			// rollback file remotely
+			await fsp.rollbackDelete(relativeFilepath)
+
+			// Check if the file is now downloadable again
+			await fsp.downloadFile(relativeFilepath)
+			const content = await fs.readFile(localFilePath)
+			assert.isTrue(Buffer.compare(filecontent, content) === 0) // .compare returns 0 if the two buffers are equal
 		})
 
-        it("rollbackToLatestRevisionWhere(relativeFilePath, precondition) should rollback to latest revision that satisfies the 'precondition'", async function() {
-            // Setup
-            this.timeout(30 * 1000)
-            const filename = "filename2.txt"
-            const content1 = Buffer.from("initial")
-            const content2 = Buffer.from("content2")
-            const content3 = Buffer.from("content3")
+		it("rollbackToLatestRevisionWhere(relativeFilePath, precondition) should rollback to latest revision that satisfies the 'precondition'", async function () {
+			// Setup
+			this.timeout(30 * 1000)
+			const filename = "filename2.txt"
+			const content1 = Buffer.from("initial")
+			const content2 = Buffer.from("content2")
+			const content3 = Buffer.from("content3")
 
-            const relativeFilePath = path.join(rollbackDirName, filename)
-            const localFilePath = path.join(__dirname, relativeFilePath)
+			const relativeFilePath = path.join(rollbackDirName, filename)
+			const localFilePath = path.join(__dirname, relativeFilePath)
 
-            for (c of [content1, content2, content3]) {
-                // Make local file and upload
-                await fs.writeFile(localFilePath, c)
-                await fsp.upload(relativeFilePath)
-            }
+			for (c of [content1, content2, content3]) {
+				// Make local file and upload
+				await fs.writeFile(localFilePath, c)
+				await fsp.upload(relativeFilePath)
+			}
 
-            // Action
-            const precondition = (content) => {
-                return Buffer.compare(content, content2) === 0
-            }
-            await fsp.rollbackToLatestRevisionWhere(relativeFilePath, precondition)
+			// Action
+			const precondition = (content) => {
+				return Buffer.compare(content, content2) === 0
+			}
+			await fsp.rollbackToLatestRevisionWhere(
+				relativeFilePath,
+				precondition
+			)
 
-            // Check
-            await fsp.downloadFile(relativeFilePath)
-            const content = await fs.readFile(localFilePath)
-            assert.isTrue(Buffer.compare(content2, content) === 0) // .compare returns 0 if the two buffers are equal
-        })
-
+			// Check
+			await fsp.downloadFile(relativeFilePath)
+			const content = await fs.readFile(localFilePath)
+			assert.isTrue(Buffer.compare(content2, content) === 0) // .compare returns 0 if the two buffers are equal
+		})
 	})
 })

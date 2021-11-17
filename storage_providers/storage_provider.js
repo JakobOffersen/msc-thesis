@@ -80,60 +80,65 @@ class DropboxProvider extends StorageProvider {
         const file = await fs.open(fullPathLocal, "r")
         const stat = await fs.stat(fullPathLocal)
 
-        if (stat.size === 0) {
-            throw new Error("Empty file cannot be uploaded")
-        }
+        // wrap in try-catch-finally to ensure 'file' is closes before returning
+        try {
+            if (stat.size === 0) {
+                throw new Error("Empty file cannot be uploaded")
+            }
 
-        if (stat.size > this.MAX_FILE_SIZE) {
-            throw new Error("File exceeds maximum size")
-        }
+            if (stat.size > this.MAX_FILE_SIZE) {
+                throw new Error("File exceeds maximum size")
+            }
 
-        if (stat.size < this.MAX_UPLOAD_TRANSFER_SIZE) {
-            const contents = await file.readFile()
-            await this.client.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
-        } else {
-            const CHUNK_SIZE = 8 * (1024 ** 2) // 8 MB
-            let window = Buffer.alloc(CHUNK_SIZE)
-            let offset = 0
+            if (stat.size < this.MAX_UPLOAD_TRANSFER_SIZE) {
+                const contents = await file.readFile()
+                await this.client.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
+            } else {
+                const CHUNK_SIZE = 8 * (1024 ** 2) // 8 MB
+                let window = Buffer.alloc(CHUNK_SIZE)
+                let offset = 0
 
-            // Create session and upload the first chunk
-            await file.read(window, 0, CHUNK_SIZE)
-            offset += CHUNK_SIZE
+                // Create session and upload the first chunk
+                await file.read(window, 0, CHUNK_SIZE)
+                offset += CHUNK_SIZE
 
-            const session = await this.client.filesUploadSessionStart({
-                contents: window
-            })
+                const session = await this.client.filesUploadSessionStart({
+                    contents: window
+                })
 
-            // Upload remaining chunks
-            while (true) {
-                const remaining = stat.size - offset
+                // Upload remaining chunks
+                while (true) {
+                    const remaining = stat.size - offset
 
-                if (remaining > CHUNK_SIZE) {
-                    await file.read(window, 0, CHUNK_SIZE)
-                    await this.client.filesUploadSessionAppendV2({
-                        contents: window,
-                        cursor: { session_id: session.result.session_id, offset }
-                    })
+                    if (remaining > CHUNK_SIZE) {
+                        await file.read(window, 0, CHUNK_SIZE)
+                        await this.client.filesUploadSessionAppendV2({
+                            contents: window,
+                            cursor: { session_id: session.result.session_id, offset }
+                        })
 
-                    offset += CHUNK_SIZE
+                        offset += CHUNK_SIZE
 
-                } else {
-                    await file.read(window, 0, remaining)
+                    } else {
+                        await file.read(window, 0, remaining)
 
-                    await this.client.filesUploadSessionFinish({
-                        contents: window.subarray(0, remaining),
-                        cursor: { session_id: session.result.session_id, offset },
-                        commit: { path: relativeFilePath, mode: "overwrite" }
-                    })
+                        await this.client.filesUploadSessionFinish({
+                            contents: window.subarray(0, remaining),
+                            cursor: { session_id: session.result.session_id, offset },
+                            commit: { path: relativeFilePath, mode: "overwrite" }
+                        })
 
-                    offset += remaining
+                        offset += remaining
 
-                    break
+                        break
+                    }
                 }
             }
+        } catch (error) {
+            throw error
+        } finally {
+            await file.close()
         }
-
-        await file.close()
 
     }
 
@@ -141,17 +146,19 @@ class DropboxProvider extends StorageProvider {
         const fullPathLocal = path.join(this.baseDirLocal, relativeFilePath)
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
 
-        var file
-        try {
-            file = await fs.open(fullPathLocal, "r+") // 'r+': Open file for reading and writing. An exception occurs if the file does not exist.
-        } catch (error) {
-            if (error.code === "ENOENT") file = await fs.open(fullPathLocal, "w+") // 'w+': Open file for reading and writing. The file is created (if it does not exist) or truncated (if it exists).
-            else throw error
-        }
-        const response = await this.client.filesDownload({ path: fullPathRemote })
-        const result = response.result
+        const file = await fs.open(fullPathLocal, "w+")
 
-        await fs.writeFile(file, result.fileBinary, "binary")
+        // wrap in try-catch-finally to ensure 'file' is closes before returning
+        try {
+            const response = await this.client.filesDownload({ path: fullPathRemote })
+            const result = response.result
+
+            await fs.writeFile(file, result.fileBinary, "binary")
+        } catch (error) {
+            throw error
+        } finally {
+            file.close()
+        }
     }
 
     async delete(relativePath) {

@@ -137,15 +137,22 @@ const handlers = {
     async read(path, fd, buffer, length, position) {
         const stat = await fs.stat(path)
         const file = await fs.open(path, "r")
-        if (position >= stat.size - crypto.NONCE_LENGTH) throw new FSError(-1) // read-error occured. TODO: use proper error code
 
-        const key = keyProvider.getKeyForPath(path)
-        const nonce = await readNonceInFile(file)
-        const cipher = await readCipherInFile(file, position, length)
-        const plain = crypto.decryptSlice2(cipher, nonce, key, position, length)
-        plain.copy(buffer) // copy 'plain' into buffer
-        await file.close()
+        // wrap in try-catch-finally to ensure 'file' is closes before returning
+        try {
+            if (position >= stat.size - crypto.NONCE_LENGTH) throw new FSError(-1) // read-error occured. TODO: use proper error code
+
+            const key = keyProvider.getKeyForPath(path)
+            const nonce = await readNonceInFile(file)
+            const cipher = await readCipherInFile(file, position, length)
+            const plain = crypto.decryptSlice2(cipher, nonce, key, position, length)
+            plain.copy(buffer) // copy 'plain' into buffer
         return plain.length
+        } catch (error) {
+            throw error
+        } finally {
+            await file.close()
+        }
     },
 
     // Encrypts before writing to disk. Each write-call re-encrypts the file at 'path' using a fresh nonce.
