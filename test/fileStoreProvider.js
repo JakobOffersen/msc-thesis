@@ -294,37 +294,5 @@ describe.skip("FSP", function () {
 			const content = await fs.readFile(localFilePath)
 			assert.isTrue(Buffer.compare(filecontent, content) === 0) // .compare returns 0 if the two buffers are equal
 		})
-
-		it("rollbackToLatestRevisionWhere(relativeFilePath, precondition) should rollback to latest revision that satisfies the 'precondition'", async function () {
-			// Setup
-			this.timeout(30 * 1000)
-			const filename = "filename2.txt"
-			const content1 = Buffer.from("initial")
-			const content2 = Buffer.from("content2")
-			const content3 = Buffer.from("content3")
-
-			const relativeFilePath = path.join(rollbackDirName, filename)
-			const localFilePath = path.join(__dirname, relativeFilePath)
-
-			for (c of [content1, content2, content3]) {
-				// Make local file and upload
-				await fs.writeFile(localFilePath, c)
-				await fsp.upload(relativeFilePath)
-			}
-
-			// Action
-			const precondition = (content) => {
-				return Buffer.compare(content, content2) === 0
-			}
-			await fsp.rollbackToLatestRevisionWhere(
-				relativeFilePath,
-				precondition
-			)
-
-			// Check
-			await fsp.downloadFile(relativeFilePath)
-			const content = await fs.readFile(localFilePath)
-			assert.isTrue(Buffer.compare(content2, content) === 0) // .compare returns 0 if the two buffers are equal
-		})
 	})
 })

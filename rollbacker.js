@@ -29,37 +29,51 @@ class Rolbacker extends EventEmitter {
 		await this._watcher.close()
 	}
 
-	async _onAdd(p) {
-		console.log("ON ADD", p)
-		await this.x(p)
+	async _onAdd(fullLocalPath) {
+		await this._checkIfRollbackNeeded(fullLocalPath)
 	}
 
-    async x(p) {
-        const content = await fs.readFile(p)
+    async _onChange(fullLocalPath) {
+        await this._checkIfRollbackNeeded(fullLocalPath)
+	}
+
+    async _checkIfRollbackNeeded(fullLocalPath) {
+        const content = await fs.readFile(fullLocalPath)
 
 		const satisfied = this._predicate(content)
 
 		// Start rollback if the file does not satisfy the predicate
 		if (!satisfied) {
-			const relativePath = path.relative(this._watchPath, p)
-			this.emit("began", relativePath)
-			try {
-				await this._fsp.rollbackToLatestRevisionWhere(
-					relativePath,
-					this._predicate
-				)
-				this.emit("succeeded", { relativePath })
-			} catch (error) {
-				this.emit("failed", { relativePath, error })
-				throw error
-			}
+            const relativePath = path.relative(this._watchPath, fullLocalPath)
+            try {
+                this.emit("began", relativePath)
+
+                await this._rollback(fullLocalPath)
+
+                this.emit("succeeded", { relativePath })
+            } catch (error) {
+                this.emit("failed", { relativePath, error })
+            }
 		}
     }
 
-	async _onChange(p) {
-		console.log("ON CHANGE", p)
-        await this.x(p)
-	}
+    async _rollback(fullLocalPath) {
+        const relativePath = path.relative(this._watchPath, fullLocalPath)
+        const { entries } = await this._fsp.listRevisions(relativePath)
+
+        for (const entry of entries) {
+            const content = await this._fsp.downloadRevision(entry.rev)
+
+            const satisfied = this._predicate(content)
+
+            if (satisfied) {
+                return await this._fsp.restoreFile(relativePath, entry.rev)
+            }
+        }
+
+    }
+
+
 }
 
 module.exports = Rolbacker

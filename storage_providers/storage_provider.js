@@ -24,7 +24,7 @@ class StorageProvider extends EventEmitter {
     async stopLongpoll() { abstract() }
     async rollbackDelete(filePath) { abstract() }
     async listRevisions(filePath) { abstract() }
-    async rollbackToLatestRevisionWhere(relativeFilePath, precondition) { abstract() }
+    async downloadRevision(revisionID) { abstract() }
 }
 
 class DropboxProvider extends StorageProvider {
@@ -139,30 +139,34 @@ class DropboxProvider extends StorageProvider {
         } finally {
             await file.close()
         }
+    }
 
+    async downloadRevision(revisionID) {
+        const response = await this.client.filesDownload( { path: "rev:" + revisionID })
+        return response.result.fileBinary
     }
 
     async downloadFile(relativeFilePath, { shouldWriteToDisk = true }) {
-        const fullPathLocal = path.join(this.baseDirLocal, relativeFilePath)
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
 
-        const file = await fs.open(fullPathLocal, "w+")
+        const response = await this.client.filesDownload({ path: fullPathRemote })
+        const result = response.result
 
-        // wrap in try-catch-finally to ensure 'file' is closes before returning
-        try {
-            const response = await this.client.filesDownload({ path: fullPathRemote })
-            const result = response.result
-
-            if (shouldWriteToDisk) {
+        if (shouldWriteToDisk) {
+            var file;
+            // wrap file handling in try/catch/finally to ensure filehandle is closed properly
+            try {
+                const fullPathLocal = path.join(this.baseDirLocal, relativeFilePath)
+                const file = await fs.open(fullPathLocal, "w+")
                 await fs.writeFile(file, result.fileBinary, "binary")
+            } catch (error) {
+                throw error
+            } finally {
+                if (!!file) file.close()
             }
-
-            return result.fileBinary
-        } catch (error) {
-            throw error
-        } finally {
-            file.close()
         }
+
+        return result.fileBinary
     }
 
     async delete(relativePath) {
@@ -236,23 +240,9 @@ class DropboxProvider extends StorageProvider {
         return response.result
     }
 
-    async rollbackToLatestRevisionWhere(relativeFilePath, predicate) {
-        const { entries } = await this.listRevisions(relativeFilePath)
-
-        // enumerate back through revisions until 'until' is met
-        for (const entry of entries) {
-            const response = await this.client.filesDownload( { path: "rev:" + entry.rev })
-            const fileBinary = response.result.fileBinary
-
-            // Restore the file when predicate is satisfied
-            if (predicate(fileBinary)) {
-                const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
-                await this.client.filesRestore( { path: fullPathRemote, rev: entry.rev })
-                return
-            }
-        }
-        //TODO: Maybe request more revisions if none of the first 10 (default limit for .listRevisions) satisfy 'precondition'?
-        throw new Error("None of the " + entries.length + " entries matched the received precondition")
+    async restoreFile(relativeFilePath, revisionID ) {
+        const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
+        return await this.client.filesRestore( { path: fullPathRemote, rev: revisionID })
     }
 }
 
