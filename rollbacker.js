@@ -4,6 +4,13 @@ const { EventEmitter } = require("stream")
 const fs = require("fs/promises")
 
 class Rolbacker extends EventEmitter {
+
+    // EVENT NAMES
+    READY = "ready"
+    BEGAN = "began"
+    FAILED = "failed"
+    SUCCESS = "success"
+
 	constructor({ fsp, watchPath, predicate }) {
 		super()
 		this._fsp = fsp
@@ -19,9 +26,9 @@ class Rolbacker extends EventEmitter {
 		// To only watch for future changes, we only add our 'add' listener after
 		// the initial scan has occured.
 		this._watcher.on("ready", () => {
-			this._watcher.on("add", this._onAdd.bind(this))
-			this._watcher.on("change", this._onChange.bind(this))
-			this.emit("ready")
+			this._watcher.on("add", this._checkIfRollbackNeeded.bind(this))
+			this._watcher.on("change", this._checkIfRollbackNeeded.bind(this))
+			this.emit(this.READY)
 		})
 	}
 
@@ -29,14 +36,12 @@ class Rolbacker extends EventEmitter {
 		await this._watcher.close()
 	}
 
-	async _onAdd(fullLocalPath) {
-		await this._checkIfRollbackNeeded(fullLocalPath)
-	}
-
-    async _onChange(fullLocalPath) {
-        await this._checkIfRollbackNeeded(fullLocalPath)
-	}
-
+    /** Checks if the modified file at 'fullLocalPath' satisfies the passed predicate
+     *  If not, a rollback to the most-recent revision that satisfies the predicate is performed
+     *  The outcome of the rollback is emitted ('succeeded'/'failed')
+     *
+     * @param {full local path to the modified file} fullLocalPath
+     */
     async _checkIfRollbackNeeded(fullLocalPath) {
         const content = await fs.readFile(fullLocalPath)
 
@@ -46,13 +51,13 @@ class Rolbacker extends EventEmitter {
 		if (!satisfied) {
             const relativePath = path.relative(this._watchPath, fullLocalPath)
             try {
-                this.emit("began", relativePath)
+                this.emit(this.BEGAN, relativePath)
 
                 await this._rollback(fullLocalPath)
 
-                this.emit("succeeded", { relativePath })
+                this.emit(this.SUCCESS, { relativePath })
             } catch (error) {
-                this.emit("failed", { relativePath, error })
+                this.emit(this.FAILED, { relativePath, error })
             }
 		}
     }
@@ -71,9 +76,8 @@ class Rolbacker extends EventEmitter {
             }
         }
 
+        throw new Error("None of the " + entries.length + " revisions met the predicate.")
     }
-
-
 }
 
 module.exports = Rolbacker

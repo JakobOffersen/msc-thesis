@@ -69,16 +69,16 @@ describe("Rollbacker", function () {
 			watchPath: dropboxClientPath,
 		})
 
-		rollbacker.on("ready", async () => {
+		rollbacker.on(rollbacker.READY, async () => {
 			// Trigger the rollbacker by mocking an invalid write to the same file
 			await fs.writeFile(localFullPath, Buffer.from("invalid update"))
 			await fsp.upload(relativeFilePath)
 		})
 
-		rollbacker.on("failed", () => {
+		rollbacker.on(rollbacker.FAILED, () => {
 			reject()
 		})
-		rollbacker.on("succeeded", ({ relativePath }) => {
+		rollbacker.on(rollbacker.SUCCESS, ({ relativePath }) => {
 			relativePath === relativeFilePath ? resolve() : reject()
 		})
 
