@@ -1,15 +1,25 @@
 const { isAsyncFunction } = require("util/types")
 
+class FSError extends Error {
+    static operationNotSupported = new FSError(-100)
+
+    constructor(code) {
+        super()
+        this.code = code
+    }
+}
+
 function callbackify(fn) {
     const SUCCESS = 0
-    var fnLength = fn.length
+    const fnLength = fn.length
+    
     return function () {
-        var args = [].slice.call(arguments)
-        var ctx = this
+        const args = [].slice.call(arguments)
+        const ctx = this
         if (args.length === fnLength + 1 &&
-            typeof args[fnLength] === 'function') {
+            typeof args[fnLength] === "function") {
             // callback mode
-            var cb = args.pop()
+            const cb = args.pop()
             fn.apply(this, args)
                 .then(function (val) {
                     cb.call(ctx, SUCCESS, val)
@@ -19,6 +29,7 @@ function callbackify(fn) {
                     if (err instanceof FSError) {
                         code = err.code
                     }
+                    console.error(err)
 
                     cb.call(ctx, code)
                 })
@@ -46,9 +57,10 @@ function beforeShutdown(handler) {
 }
 
 const SHUTDOWN_HANDLERS = []
-const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM"]
+const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "uncaughtException"]
 const exitHandler = async (signal) => {
-    console.warn(`Shutting down: received ${signal}`);
+    console.warn(`Shutting down: received ${signal}`)
+    console.error(signal)
 
     for (let handler of SHUTDOWN_HANDLERS) {
         try {
@@ -64,6 +76,7 @@ const exitHandler = async (signal) => {
 SHUTDOWN_SIGNALS.forEach(signal => process.once(signal, exitHandler))
 
 module.exports = {
+    FSError,
     callbackify,
     callbackifyHandlers,
     beforeShutdown
