@@ -166,7 +166,7 @@ class DropboxProvider extends StorageProvider {
             }
         }
 
-        return result.fileBinary
+        return result
     }
 
     async delete(relativePath) {
