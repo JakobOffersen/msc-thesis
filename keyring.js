@@ -52,6 +52,33 @@ class KeyRing {
 		return null
 	}
 
+    /// Returns 'true' if a key-object has been updated, otherwise returns 'false'
+    async updateKeyObjectPath(oldPath, newPath) {
+        const keys = await this._read()
+        for (const keyObject of keys) {
+            if (keyObject.path === oldPath) {
+                keyObject.path = newPath
+                keyObject.updatedAt = DateTime.now(),
+                await this._write(keys)
+                return true
+            }
+        }
+        return false
+    }
+
+    async updateKeyObjectKey(path, newKey) {
+        const keys = await this._read()
+        for (const keyObject of keys) {
+            if (keyObject.path === path) {
+                keyObject.key = Buffer.isBuffer(newKey) ? newKey.toString('hex') : newKey
+                keyObject.updatedAt = DateTime.now()
+                await this._write(keys)
+                return true
+            }
+        }
+        return false
+    }
+
 	async _read() {
 		try {
 			const content = await fs.readFile(this.path)
