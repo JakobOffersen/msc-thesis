@@ -27,7 +27,7 @@ describe("Key Ring", function () {
 	it("should reject adding an invalid key-object", async function () {
 		const kr = new KeyRing(join(testDirPath, "keyring1"))
 
-		const k1 = { // should be rejected since it does not have a 'type' property
+		const cap = { // should be rejected since it does not have a 'type' property
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
@@ -35,7 +35,7 @@ describe("Key Ring", function () {
 		}
 
 		try {
-			await kr.addKeyObject(k1)
+			await kr.addCapability(cap)
 			assert.fail()
 		} catch {}
 	})
@@ -43,7 +43,7 @@ describe("Key Ring", function () {
 	it("should accept adding a valid key-object", async function () {
 		const kr = new KeyRing(join(testDirPath, "keyring1.txt"))
 
-		const k1 = {
+		const cap = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
@@ -52,21 +52,21 @@ describe("Key Ring", function () {
 		}
 
 		try {
-			await kr.addKeyObject(k1)
+			await kr.addCapability(cap)
 		} catch {
 			assert.fail()
 		}
 
-		const actual = await kr.getKeyObjectWithPathAndType(join(testDirPath, "file1"), kr.TYPE_WRITE)
+		const actual = await kr.getCapabilityWithPathAndType(join(testDirPath, "file1"), kr.TYPE_WRITE)
 
-		assert.equal(JSON.stringify(k1), JSON.stringify(actual))
+		assert.equal(JSON.stringify(cap), JSON.stringify(actual))
 	})
 
 	it("should remove key object", async function () {
 		const kr = new KeyRing(join(testDirPath, "keyring2.txt"))
 
 		const path = join(testDirPath, "file")
-		const k1 = {
+		const cap = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
@@ -74,12 +74,12 @@ describe("Key Ring", function () {
 			type: kr.TYPE_WRITE,
 		}
 
-		await kr.addKeyObject(k1)
-		const k1Actual = await kr.getKeyObjectWithPathAndType(path, kr.TYPE_WRITE)
-		assert.isNotNull(k1Actual)
+		await kr.addCapability(cap)
+		const capabilityActual = await kr.getCapabilityWithPathAndType(path, kr.TYPE_WRITE)
+		assert.isNotNull(capabilityActual)
 
-		await kr.removeKeyObject(k1)
-		const k1ActualAfterRemoval = await kr.getKeyObjectWithPathAndType(path, kr.TYPE_WRITE)
+		await kr.removeCapability(cap)
+		const k1ActualAfterRemoval = await kr.getCapabilityWithPathAndType(path, kr.TYPE_WRITE)
 		assert.isNull(k1ActualAfterRemoval)
 	})
 
@@ -88,7 +88,7 @@ describe("Key Ring", function () {
 
         const path = join(testDirPath, "test-file.txt")
 
-        const k = {
+        const cap = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
@@ -96,11 +96,11 @@ describe("Key Ring", function () {
 			type: kr.TYPE_WRITE,
 		}
 
-        await kr.addKeyObject(k)
+        await kr.addCapability(cap)
 
-        await kr.removeKeyObjectsWithPath(path)
+        await kr.removeCapabilitiesWithPath(path)
 
-        const actual = await kr.getKeyObjectsWithPath(path)
+        const actual = await kr.getCapabilitiesWithPath(path)
         assert.isEmpty(actual)
     })
 
@@ -109,7 +109,7 @@ describe("Key Ring", function () {
 
         const path = join(testDirPath, "test-file.txt")
 
-        const k1 = {
+        const cap1 = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
@@ -117,7 +117,7 @@ describe("Key Ring", function () {
 			type: kr.TYPE_WRITE,
 		}
 
-        const k2 = {
+        const cap2 = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "other random key").toString("hex"),
@@ -125,16 +125,16 @@ describe("Key Ring", function () {
 			type: kr.TYPE_READ,
 		}
 
-        await kr.addKeyObject(k1)
-        await kr.addKeyObject(k2)
+        await kr.addCapability(cap1)
+        await kr.addCapability(cap2)
 
-        await kr.removeKeyObjectsWithPath(path, kr.TYPE_WRITE)
+        await kr.removeCapabilitiesWithPath(path, kr.TYPE_WRITE)
 
-        const actualWrite = await kr.getKeyObjectWithPathAndType(path, kr.TYPE_WRITE)
-        const [ actualVerify ] = await kr.getKeyObjectsWithPath(path)
+        const actualWrite = await kr.getCapabilityWithPathAndType(path, kr.TYPE_WRITE)
+        const [ actualVerify ] = await kr.getCapabilitiesWithPath(path)
 
         assert.isNull(actualWrite)
-        assert.equal(JSON.stringify(k2), JSON.stringify(actualVerify))
+        assert.equal(JSON.stringify(cap2), JSON.stringify(actualVerify))
     })
 
 	it("should update all key objects with new path", async function () {
@@ -143,7 +143,7 @@ describe("Key Ring", function () {
 		const oldPath = join(testDirPath, "initifial-file-name.txt")
 		const newPath = join(testDirPath, "updated-file-name.txt")
 
-		const k1 = {
+		const cap1 = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
@@ -151,7 +151,7 @@ describe("Key Ring", function () {
 			type: kr.TYPE_WRITE,
 		}
 
-        const k2 = {
+        const cap2 = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "other random key").toString("hex"),
@@ -159,11 +159,11 @@ describe("Key Ring", function () {
 			type: kr.TYPE_READ,
 		}
 
-		await kr.addKeyObject(k1)
-        await kr.addKeyObject(k2)
-        await kr.updateKeyObjectsWithPath(oldPath, newPath)
+		await kr.addCapability(cap1)
+        await kr.addCapability(cap2)
+        await kr.updateCapabilitiesWithPath(oldPath, newPath)
 
-		const [actual1, actual2] = await kr.getKeyObjectsWithPath(newPath)
+		const [actual1, actual2] = await kr.getCapabilitiesWithPath(newPath)
 
         assert.equal(actual1.path, newPath)
 		assert.equal(actual2.path, newPath)
@@ -180,7 +180,7 @@ describe("Key Ring", function () {
 		const newWriteKey = Buffer.alloc(32, "new key")
         const verifyKey = Buffer.alloc(32, "verify key").toString("hex")
 
-		const k1 = {
+		const cap1 = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: oldWriteKey,
@@ -188,7 +188,7 @@ describe("Key Ring", function () {
 			type: kr.TYPE_WRITE,
 		}
 
-        const k2 = {
+        const cap2 = {
 			createdAt: DateTime.now(),
 			updatedAt: DateTime.now(),
 			key: verifyKey,
@@ -196,16 +196,16 @@ describe("Key Ring", function () {
 			type: kr.TYPE_VERIFY
 		}
 
-		await kr.addKeyObject(k1)
-        await kr.addKeyObject(k2)
-		await kr.updateKeyObjectKey(path, kr.TYPE_WRITE, newWriteKey)
+		await kr.addCapability(cap1)
+        await kr.addCapability(cap2)
+		await kr.updateCapabilityKey(path, kr.TYPE_WRITE, newWriteKey)
 
 
-		const actualWrite = await kr.getKeyObjectWithPathAndType(path, kr.TYPE_WRITE)
+		const actualWrite = await kr.getCapabilityWithPathAndType(path, kr.TYPE_WRITE)
 		assert.equal(actualWrite.key, newWriteKey.toString("hex"))
 		assert.isTrue(actualWrite.createdAt < actualWrite.updatedAt)
 
-        const actualVerify = await kr.getKeyObjectWithPathAndType(path, kr.TYPE_VERIFY)
+        const actualVerify = await kr.getCapabilityWithPathAndType(path, kr.TYPE_VERIFY)
         assert.equal(actualVerify.key, verifyKey)
 	})
 })
