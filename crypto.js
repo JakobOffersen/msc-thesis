@@ -87,13 +87,25 @@ function makeEncryptionKeyPair() {
     return { sk, pk }
 }
 
-function sign(message, sk) {
+function signDetached(message, sk) {
     let sig = Buffer.alloc(sodium.crypto_sign_BYTES)
     sodium.crypto_sign_detached(sig, message, sk)
     return sig
 }
 
-function verify(signature, message, pk) {
+function signCombined(message, sk) {
+    let signedMessage = Buffer.alloc(sodium.crypto_sign_BYTES + message.length)
+    sodium.crypto_sign(signedMessage, message, sk)
+    return signedMessage
+}
+
+function verifyCombined(signedMessage, pk) {
+    let message = Buffer.alloc(signedMessage.length - sodium.crypto_sign_BYTES)
+    const verified = sodium.crypto_sign_open(message, signedMessage, pk)
+    return { verified, message : verified ? message : null }
+}
+
+function verifyDetached(signature, message, pk) {
     return sodium.crypto_sign_verify_detached(signature, message, pk)
 }
 
@@ -228,8 +240,10 @@ module.exports = {
     decryptWithPublicKey,
     makeSigningKeyPair,
     makeEncryptionKeyPair,
-    sign,
-    verify,
+    signDetached,
+    verifyDetached,
+    signCombined,
+    verifyCombined,
     streamXOR,
     splitNonceAndCipher,
     decryptSlice,

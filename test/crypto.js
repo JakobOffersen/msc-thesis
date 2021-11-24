@@ -795,7 +795,7 @@ describe("Crypto.js", function () {
 			})
 		})
 
-		describe("#sign(message, sk)", function () {
+		describe("#signDetached(message, sk)", function () {
 			it("message must be type Buffer", function () {
 				const m1 = Buffer.from("hello world")
 				const m2 = "hello world"
@@ -803,10 +803,10 @@ describe("Crypto.js", function () {
 
 				assert.isTrue(Buffer.isBuffer(m1))
 				assert.doesNotThrow(() => {
-					crypto.sign(m1, sk)
+					crypto.signDetached(m1, sk)
 				})
 				assert.throws(() => {
-					crypto.sign(m2, sk)
+					crypto.signDetached(m2, sk)
 				})
 			})
 
@@ -822,37 +822,37 @@ describe("Crypto.js", function () {
 				assert.notEqual(tooLongSignKey, 64)
 
 				assert.doesNotThrow(() => {
-					crypto.sign(m, sk)
+					crypto.signDetached(m, sk)
 				})
 				assert.throws(() => {
-					crypto.sign(m, tooShortSignKey)
+					crypto.signDetached(m, tooShortSignKey)
 				})
 				assert.throws(() => {
-					crypto.sign(m, tooLongSignKey)
+					crypto.signDetached(m, tooLongSignKey)
 				})
 			})
 
 			it("returns type Buffer of size 64", function () {
 				const m = Buffer.from("hello world")
 				const { sk, _ } = crypto.makeSigningKeyPair()
-				const signature = crypto.sign(m, sk)
+				const signature = crypto.signDetached(m, sk)
 				assert.isTrue(Buffer.isBuffer(signature))
 				assert.equal(signature.length, 64)
 			})
 		})
 
-		describe("#verify(signature, pk)", function () {
+		describe("#verifyDetached(signature, pk)", function () {
 			it("signature must be buffer of size 64", function () {
 				const m = Buffer.from("hello world")
 				const { sk, pk } = crypto.makeSigningKeyPair()
-				const sig = crypto.sign(m, sk)
+				const sig = crypto.signDetached(m, sk)
 				const fakeSig = "sig"
 
 				assert.doesNotThrow(() => {
-					crypto.verify(sig, m, pk)
+					crypto.verifyDetached(sig, m, pk)
 				})
 				assert.throws(() => {
-					crypto.verify(fakeSig, m, pk)
+					crypto.verifyDetached(fakeSig, m, pk)
 				})
 			})
 
@@ -862,25 +862,25 @@ describe("Crypto.js", function () {
 				const pkTooShort = Buffer.alloc(31, "pk")
 				const pkTooLong = Buffer.alloc(33, "pk")
 
-				const sig = crypto.sign(m, sk)
+				const sig = crypto.signDetached(m, sk)
 
 				assert.doesNotThrow(() => {
-					crypto.verify(sig, m, pk)
+					crypto.verifyDetached(sig, m, pk)
 				})
 				assert.throws(() => {
-					crypto.verify(sig, m, pkTooShort)
+					crypto.verifyDetached(sig, m, pkTooShort)
 				})
 				assert.throws(() => {
-					crypto.verify(sig, m, pkTooLong)
+					crypto.verifyDetached(sig, m, pkTooLong)
 				})
 			})
 
 			it("returns true iff signature is issued with corresponding secret key for passed public key", function () {
 				const m = Buffer.from("hello world")
 				const { sk, pk } = crypto.makeSigningKeyPair()
-				const sig = crypto.sign(m, sk)
+				const sig = crypto.signDetached(m, sk)
 
-				const result = crypto.verify(sig, m, pk)
+				const result = crypto.verifyDetached(sig, m, pk)
 				assert.isTrue(result)
 			})
 
@@ -888,9 +888,9 @@ describe("Crypto.js", function () {
 				const m = Buffer.from("hello world")
 				const { sk, _ } = crypto.makeSigningKeyPair()
 				const otherPair = crypto.makeSigningKeyPair()
-				const sig = crypto.sign(m, sk)
+				const sig = crypto.signDetached(m, sk)
 
-				const result = crypto.verify(sig, m, otherPair.pk)
+				const result = crypto.verifyDetached(sig, m, otherPair.pk)
 				assert.isFalse(result)
 			})
 		})
