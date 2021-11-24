@@ -1,5 +1,8 @@
 const crypto = require('./crypto')
 const KeyRing = require('./keyring')
+const fs = require('fs/promises')
+const { v4: uuidv4 } = require('uuid')
+const { join } = require('path')
 
 function generateCapabilitiesForPath(relativePath) {
     const read = crypto.makeSymmetricKey()
@@ -26,6 +29,17 @@ function generateCapabilitiesForPath(relativePath) {
     }
 }
 
+/// returns name of the capability written locally in recipients postal box
+async function createCapabilitiesInvite(capabilities, recipientPublicKey, postalboxPath) {
+    const encoded = JSON.stringify(capabilities)
+    const cipher = crypto.encryptWithPublicKey(encoded, recipientPublicKey)
+    const randomNameOfCapabilitiesFile = uuidv4()
+    const localPath = join(postalboxPath, recipientPublicKey.toString('hex'), randomNameOfCapabilitiesFile + ".capability")
+    await fs.writeFile(localPath, cipher)
+    return randomNameOfCapabilitiesFile
+}
+
 module.exports = {
-    generateCapabilitiesForPath
+    generateCapabilitiesForPath,
+    createCapabilitiesInvite
 }

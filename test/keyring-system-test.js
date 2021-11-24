@@ -10,7 +10,7 @@ const {
 } = require("./testUtil")
 const KeyRing = require("../keyring")
 const crypto = require("../crypto")
-const { generateCapabilitiesForPath } = require("../capability-utils")
+const { generateCapabilitiesForPath, createCapabilitiesInvite } = require("../capability-utils")
 
 const dropboxAccessToken =
 	"rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
@@ -124,7 +124,7 @@ describe("Keyring system test", function () {
 			"users",
 			recipient.pk.toString("hex")
 		)
-        
+
 		await fs.mkdir(join(__dirname, recipientPostalBox))
 
 		const filename = "filename.txt"
@@ -133,17 +133,11 @@ describe("Keyring system test", function () {
 		const capabilites = generateCapabilitiesForPath(
 			join(testDirName, filename)
 		)
-		const encryptedCapabilities = crypto.encryptWithPublicKey(
-			JSON.stringify(capabilites),
-			recipient.pk
-		)
-		await fs.writeFile(
-			join(__dirname, recipientPostalBox, "capability.txt"),
-			encryptedCapabilities
-		)
+        // sender writes (locally) a capability invite for the recipient. The name of the file is returned
+		const nameOfCapabilityFile = await createCapabilitiesInvite(capabilites, recipient.pk, join(__dirname, testDirName, "users"))
 
 		// sender uploads capabilities to recipient
-		await fsp.upload(join(recipientPostalBox, "capability.txt"))
+		await fsp.upload(join(recipientPostalBox, nameOfCapabilityFile + ".capability"))
 
 		// sender writes to the file
 		const plain = "hello, anyone there?"
@@ -158,7 +152,7 @@ describe("Keyring system test", function () {
 
 		// recipient downloads capabilities
 		const cipherCapabilities = await fsp.downloadFile(
-			join(recipientPostalBox, "capability.txt"),
+			join(recipientPostalBox, nameOfCapabilityFile + ".capability"),
 			{ shouldWriteToDisk: false }
 		)
 		const recipientCapabilitiesData = crypto.decryptWithPublicKey(
