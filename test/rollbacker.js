@@ -22,7 +22,7 @@ const testdirname = "rollbacker"
 const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
 const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 
-describe("Rollbacker", function () {
+describe.skip("Rollbacker", function () {
 	before("setup local and remote test-folder", async function () {
 		await setupLocalAndRemoteTestFolder(__dirname, testdirname, fsp)
 	})
