@@ -25,7 +25,7 @@ function callbackify(fn) {
                     cb.call(ctx, SUCCESS, val)
                 })
                 .catch(function (err) {
-                    let code = -1
+                    let code = -999
                     if (err instanceof FSError) {
                         code = err.code
                     }
