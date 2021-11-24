@@ -1,11 +1,10 @@
 const assert = require("chai").assert
 const { DropboxProvider } = require("../storage_providers/storage_provider")
-const { join, relative } = require("path")
+const { join } = require("path")
 const fs = require("fs/promises")
-const { inversePromise, clearLocalAndRemoteTestFolderIfNecessary, setupLocalAndRemoteTestFolder, teardownLocalAndRemoteTestFolder } = require("./testUtil")
-const KeyRing = require("../keyring")
+const { setupLocalAndRemoteTestFolder, teardownLocalAndRemoteTestFolder } = require("./testUtil")
 const crypto = require("../crypto")
-const { generateCapabilitiesForPath, createCapabilitiesInvite, decryptCapabilities, encryptCapabilitiesWithPublicKey } = require("../capability-utils")
+const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilitiesWithPublicKey } = require("../capability-utils")
 const { v4: uuidv4 } = require('uuid')
 
 const dropboxAccessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
