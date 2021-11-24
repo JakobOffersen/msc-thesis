@@ -2,9 +2,9 @@ const fs = require("fs/promises")
 const { DateTime } = require("luxon")
 
 class KeyRing {
-	TYPE_READ = "read"
-	TYPE_WRITE = "write"
-	TYPE_VERIFY = "verify"
+	static TYPE_READ = "read"
+	static TYPE_WRITE = "write"
+	static TYPE_VERIFY = "verify"
 
 	constructor(path) {
 		this.path = path
@@ -178,7 +178,7 @@ class KeyRing {
 			capability.hasOwnProperty("path") &&
 			DateTime.isDateTime(DateTime.fromISO(capability.createdAt)) &&
 			DateTime.isDateTime(DateTime.fromISO(capability.updatedAt)) &&
-			[this.TYPE_READ, this.TYPE_WRITE, this.TYPE_VERIFY].includes(
+			[KeyRing.TYPE_READ, KeyRing.TYPE_WRITE, KeyRing.TYPE_VERIFY].includes(
 				capability.type
 			) &&
 			typeof capability.key === "string" &&
@@ -188,9 +188,9 @@ class KeyRing {
 
 	_isValidCapabilityType(type) {
 		return (
-			type === this.TYPE_READ ||
-			type === this.TYPE_WRITE ||
-			type === this.TYPE_VERIFY
+			type === KeyRing.TYPE_READ ||
+			type === KeyRing.TYPE_WRITE ||
+			type === KeyRing.TYPE_VERIFY
 		)
 	}
 

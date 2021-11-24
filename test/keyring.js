@@ -48,7 +48,7 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
 			path: join(testDirPath, "file1"),
-			type: kr.TYPE_WRITE,
+			type: KeyRing.TYPE_WRITE,
 		}
 
 		try {
@@ -57,7 +57,7 @@ describe("Key Ring", function () {
 			assert.fail()
 		}
 
-		const actual = await kr.getCapabilityWithPathAndType(join(testDirPath, "file1"), kr.TYPE_WRITE)
+		const actual = await kr.getCapabilityWithPathAndType(join(testDirPath, "file1"), KeyRing.TYPE_WRITE)
 
 		assert.equal(JSON.stringify(cap), JSON.stringify(actual))
 	})
@@ -71,15 +71,15 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
 			path: path,
-			type: kr.TYPE_WRITE,
+			type: KeyRing.TYPE_WRITE,
 		}
 
 		await kr.addCapability(cap)
-		const capabilityActual = await kr.getCapabilityWithPathAndType(path, kr.TYPE_WRITE)
+		const capabilityActual = await kr.getCapabilityWithPathAndType(path, KeyRing.TYPE_WRITE)
 		assert.isNotNull(capabilityActual)
 
 		await kr.removeCapability(cap)
-		const k1ActualAfterRemoval = await kr.getCapabilityWithPathAndType(path, kr.TYPE_WRITE)
+		const k1ActualAfterRemoval = await kr.getCapabilityWithPathAndType(path, KeyRing.TYPE_WRITE)
 		assert.isNull(k1ActualAfterRemoval)
 	})
 
@@ -93,7 +93,7 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
 			path: path,
-			type: kr.TYPE_WRITE,
+			type: KeyRing.TYPE_WRITE,
 		}
 
         await kr.addCapability(cap)
@@ -114,7 +114,7 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
 			path: path,
-			type: kr.TYPE_WRITE,
+			type: KeyRing.TYPE_WRITE,
 		}
 
         const cap2 = {
@@ -122,15 +122,15 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "other random key").toString("hex"),
 			path: path,
-			type: kr.TYPE_READ,
+			type: KeyRing.TYPE_READ,
 		}
 
         await kr.addCapability(cap1)
         await kr.addCapability(cap2)
 
-        await kr.removeCapabilitiesWithPath(path, kr.TYPE_WRITE)
+        await kr.removeCapabilitiesWithPath(path, KeyRing.TYPE_WRITE)
 
-        const actualWrite = await kr.getCapabilityWithPathAndType(path, kr.TYPE_WRITE)
+        const actualWrite = await kr.getCapabilityWithPathAndType(path, KeyRing.TYPE_WRITE)
         const [ actualVerify ] = await kr.getCapabilitiesWithPath(path)
 
         assert.isNull(actualWrite)
@@ -148,7 +148,7 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "random key").toString("hex"),
 			path: oldPath,
-			type: kr.TYPE_WRITE,
+			type: KeyRing.TYPE_WRITE,
 		}
 
         const cap2 = {
@@ -156,7 +156,7 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: Buffer.alloc(32, "other random key").toString("hex"),
 			path: oldPath,
-			type: kr.TYPE_READ,
+			type: KeyRing.TYPE_READ,
 		}
 
 		await kr.addCapability(cap1)
@@ -185,7 +185,7 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: oldWriteKey,
 			path: path,
-			type: kr.TYPE_WRITE,
+			type: KeyRing.TYPE_WRITE,
 		}
 
         const cap2 = {
@@ -193,19 +193,19 @@ describe("Key Ring", function () {
 			updatedAt: DateTime.now(),
 			key: verifyKey,
 			path: path,
-			type: kr.TYPE_VERIFY
+			type: KeyRing.TYPE_VERIFY
 		}
 
 		await kr.addCapability(cap1)
         await kr.addCapability(cap2)
-		await kr.updateCapabilityKey(path, kr.TYPE_WRITE, newWriteKey)
+		await kr.updateCapabilityKey(path, KeyRing.TYPE_WRITE, newWriteKey)
 
 
-		const actualWrite = await kr.getCapabilityWithPathAndType(path, kr.TYPE_WRITE)
+		const actualWrite = await kr.getCapabilityWithPathAndType(path, KeyRing.TYPE_WRITE)
 		assert.equal(actualWrite.key, newWriteKey.toString("hex"))
 		assert.isTrue(actualWrite.createdAt < actualWrite.updatedAt)
 
-        const actualVerify = await kr.getCapabilityWithPathAndType(path, kr.TYPE_VERIFY)
+        const actualVerify = await kr.getCapabilityWithPathAndType(path, KeyRing.TYPE_VERIFY)
         assert.equal(actualVerify.key, verifyKey)
 	})
 })
