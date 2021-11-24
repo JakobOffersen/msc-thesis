@@ -29,17 +29,22 @@ function generateCapabilitiesForPath(relativePath) {
     }
 }
 
-/// returns name of the capability written locally in recipients postal box
-async function createCapabilitiesInvite(capabilities, recipientPublicKey, postalboxPath) {
+function createCapabilitiesInvite(capabilities, recipientPublicKey, relativePostalBoxPath) {
     const encoded = JSON.stringify(capabilities)
     const cipher = crypto.encryptWithPublicKey(encoded, recipientPublicKey)
     const randomNameOfCapabilitiesFile = uuidv4()
-    const localPath = join(postalboxPath, recipientPublicKey.toString('hex'), randomNameOfCapabilitiesFile + ".capability")
-    await fs.writeFile(localPath, cipher)
-    return randomNameOfCapabilitiesFile
+    const localPath = join(relativePostalBoxPath, recipientPublicKey.toString('hex'), randomNameOfCapabilitiesFile + ".capability")
+    return { cipher, path : localPath }
+}
+
+function decryptCapabilities(cipher, recipientPublicKey, recipientPrivateKey) {
+    const decrypted = crypto.decryptWithPublicKey(cipher, recipientPublicKey, recipientPrivateKey)
+    const decoded = JSON.parse(decrypted)
+    return decoded
 }
 
 module.exports = {
     generateCapabilitiesForPath,
-    createCapabilitiesInvite
+    createCapabilitiesInvite,
+    decryptCapabilities
 }

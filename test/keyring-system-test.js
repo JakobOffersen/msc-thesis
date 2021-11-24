@@ -1,6 +1,6 @@
 const assert = require("chai").assert
 const { DropboxProvider } = require("../storage_providers/storage_provider")
-const { join } = require("path")
+const { join, relative } = require("path")
 const fs = require("fs/promises")
 const {
 	inversePromise,
@@ -10,7 +10,11 @@ const {
 } = require("./testUtil")
 const KeyRing = require("../keyring")
 const crypto = require("../crypto")
-const { generateCapabilitiesForPath, createCapabilitiesInvite } = require("../capability-utils")
+const {
+	generateCapabilitiesForPath,
+	createCapabilitiesInvite,
+	decryptCapabilities,
+} = require("../capability-utils")
 
 const dropboxAccessToken =
 	"rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
@@ -119,25 +123,31 @@ describe("Keyring system test", function () {
 		const recipient = crypto.makeEncryptionKeyPair()
 
 		// setup recipient postal box
-		const recipientPostalBox = join(
-			testDirName,
-			"users",
-			recipient.pk.toString("hex")
-		)
-
+		const postalBoxPath = join(testDirName, "users")
+		const recipientPostalBox = join(postalBoxPath,recipient.pk.toString("hex"))
 		await fs.mkdir(join(__dirname, recipientPostalBox))
 
+        // setup file-paths
 		const filename = "filename.txt"
+		const relativeFilePath = join(testDirName, filename)
+		const fullFilePath = join(__dirname, relativeFilePath)
 
 		// sender generates capabilities
 		const capabilites = generateCapabilitiesForPath(
 			join(testDirName, filename)
 		)
-        // sender writes (locally) a capability invite for the recipient. The name of the file is returned
-		const nameOfCapabilityFile = await createCapabilitiesInvite(capabilites, recipient.pk, join(__dirname, testDirName, "users"))
+		// sender writes (locally) a capability invite for the recipient. The name of the file is returned
+		const {
+			path: capabilitiesRelativePath,
+			cipher: encryptedCapabilities,
+		} = createCapabilitiesInvite(capabilites, recipient.pk, postalBoxPath)
+		await fs.writeFile(
+			join(__dirname, capabilitiesRelativePath),
+			encryptedCapabilities
+		)
 
 		// sender uploads capabilities to recipient
-		await fsp.upload(join(recipientPostalBox, nameOfCapabilityFile + ".capability"))
+		await fsp.upload(capabilitiesRelativePath)
 
 		// sender writes to the file
 		const plain = "hello, anyone there?"
@@ -145,34 +155,35 @@ describe("Keyring system test", function () {
 			plain,
 			Buffer.from(capabilites.read.key, "hex")
 		)
-		await fs.writeFile(join(__dirname, testDirName, filename), cipher)
+
+        const signedCipher = crypto.sign(cipher, capabilites.write.key)
+
+		await fs.writeFile(fullFilePath, signedCipher)
 
 		// sender uploads the file
-		await fsp.upload(join(testDirName, filename))
+		await fsp.upload(relativeFilePath)
 
-		// recipient downloads capabilities
-		const cipherCapabilities = await fsp.downloadFile(
-			join(recipientPostalBox, nameOfCapabilityFile + ".capability"),
-			{ shouldWriteToDisk: false }
-		)
-		const recipientCapabilitiesData = crypto.decryptWithPublicKey(
-			cipherCapabilities.fileBinary,
+		// recipient downloads capabilities. Here it is assumed that the recipient has listened for changes and has been notified of the change
+		const encryptedFile = await fsp.downloadFile(capabilitiesRelativePath, {
+			shouldWriteToDisk: false,
+		})
+
+		const recipientCapabilities = decryptCapabilities(
+			encryptedFile.fileBinary,
 			recipient.pk,
 			recipient.sk
 		)
-
-        const recipientCapabilities = JSON.parse(recipientCapabilitiesData)
 
 		// recipient downloads the file from the received capabilities
 		const cipherFile = await fsp.downloadFile(
 			recipientCapabilities.read.path,
 			{ shouldWriteToDisk: false }
 		)
-		const decryptedFile = crypto.decrypt(
+		const decryptedFileContent = crypto.decrypt(
 			cipherFile.fileBinary,
 			Buffer.from(recipientCapabilities.read.key, "hex")
 		)
 
-		assert.equal(decryptedFile, plain)
+		assert.equal(decryptedFileContent, plain)
 	})
 })
