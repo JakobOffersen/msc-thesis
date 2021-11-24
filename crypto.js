@@ -33,6 +33,19 @@ function encrypt(plainMessage, key) {
     return Buffer.concat([nonce, ciphertext]) // Prepend nonce to ciphertext
 }
 
+function encryptWithPublicKey(plainMessage, recipientPublicKey) {
+    let m = Buffer.from(plainMessage, 'utf-8')
+    let ciphertext = Buffer.alloc(m.length + sodium.crypto_box_SEALBYTES)
+    sodium.crypto_box_seal(ciphertext, m, recipientPublicKey)
+    return ciphertext
+}
+
+function decryptWithPublicKey(ciphertext, recipientPublicKey, recipientSecretKey) {
+    let m = Buffer.alloc(ciphertext.length - sodium.crypto_box_SEALBYTES)
+    sodium.crypto_box_seal_open(m, ciphertext, recipientPublicKey, recipientSecretKey)
+    return m
+}
+
 function decrypt(nonceAndCipher, key) {
     let { nonce, cipher } = _splitNonceAndCipher(nonceAndCipher)
     let plainTextBuffer = Buffer.alloc(cipher.length - sodium.crypto_secretbox_MACBYTES)
@@ -60,11 +73,18 @@ function hash(input) {
     return output
 }
 
-function makeKeyPair() {
+function makeSigningKeyPair() {
     let sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
     let pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
     sodium.crypto_sign_keypair(pk, sk)
     return {sk, pk}
+}
+
+function makeEncryptionKeyPair() {
+    let sk = Buffer.alloc(sodium.crypto_box_SECRETKEYBYTES)
+    let pk = Buffer.alloc(sodium.crypto_box_PUBLICKEYBYTES)
+    sodium.crypto_box_keypair(pk, sk)
+    return { sk, pk }
 }
 
 function sign(message, sk) {
@@ -203,8 +223,11 @@ module.exports = {
     makeNonce,
     makeSymmetricKey,
     encrypt,
+    encryptWithPublicKey,
     decrypt,
-    makeKeyPair,
+    decryptWithPublicKey,
+    makeSigningKeyPair,
+    makeEncryptionKeyPair,
     sign,
     verify,
     streamXOR,
