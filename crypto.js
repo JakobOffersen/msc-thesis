@@ -33,6 +33,19 @@ function encrypt(plainMessage, key) {
     return Buffer.concat([nonce, ciphertext]) // Prepend nonce to ciphertext
 }
 
+function encryptWithPublicKey(plainMessage, recipientPublicKey) {
+    let m = Buffer.from(plainMessage, 'utf-8')
+    let ciphertext = Buffer.alloc(m.length + sodium.crypto_box_SEALBYTES)
+    sodium.crypto_box_seal(ciphertext, m, recipientPublicKey)
+    return ciphertext
+}
+
+function decryptWithPublicKey(ciphertext, recipientPublicKey, recipientSecretKey) {
+    let m = Buffer.alloc(ciphertext.length - sodium.crypto_box_SEALBYTES)
+    sodium.crypto_box_seal_open(m, ciphertext, recipientPublicKey, recipientSecretKey)
+    return m
+}
+
 function decrypt(nonceAndCipher, key) {
     let { nonce, cipher } = _splitNonceAndCipher(nonceAndCipher)
     let plainTextBuffer = Buffer.alloc(cipher.length - sodium.crypto_secretbox_MACBYTES)
@@ -60,20 +73,39 @@ function hash(input) {
     return output
 }
 
-function makeKeyPair() {
+function makeSigningKeyPair() {
     let sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
     let pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
     sodium.crypto_sign_keypair(pk, sk)
     return {sk, pk}
 }
 
-function sign(message, sk) {
+function makeEncryptionKeyPair() {
+    let sk = Buffer.alloc(sodium.crypto_box_SECRETKEYBYTES)
+    let pk = Buffer.alloc(sodium.crypto_box_PUBLICKEYBYTES)
+    sodium.crypto_box_keypair(pk, sk)
+    return { sk, pk }
+}
+
+function signDetached(message, sk) {
     let sig = Buffer.alloc(sodium.crypto_sign_BYTES)
     sodium.crypto_sign_detached(sig, message, sk)
     return sig
 }
 
-function verify(signature, message, pk) {
+function signCombined(message, sk) {
+    let signedMessage = Buffer.alloc(sodium.crypto_sign_BYTES + message.length)
+    sodium.crypto_sign(signedMessage, message, sk)
+    return signedMessage
+}
+
+function verifyCombined(signedMessage, pk) {
+    let message = Buffer.alloc(signedMessage.length - sodium.crypto_sign_BYTES)
+    const verified = sodium.crypto_sign_open(message, signedMessage, pk)
+    return { verified, message : verified ? message : null }
+}
+
+function verifyDetached(signature, message, pk) {
     return sodium.crypto_sign_verify_detached(signature, message, pk)
 }
 
@@ -203,10 +235,15 @@ module.exports = {
     makeNonce,
     makeSymmetricKey,
     encrypt,
+    encryptWithPublicKey,
     decrypt,
-    makeKeyPair,
-    sign,
-    verify,
+    decryptWithPublicKey,
+    makeSigningKeyPair,
+    makeEncryptionKeyPair,
+    signDetached,
+    verifyDetached,
+    signCombined,
+    verifyCombined,
     streamXOR,
     splitNonceAndCipher,
     decryptSlice,
