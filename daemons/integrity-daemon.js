@@ -8,7 +8,8 @@ const accessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6Xl
 const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 const fsp = new DropboxProvider(accessToken, __dirname)
 
-const predicate = (content) => {
+const predicate = (content, { id }) => {
+    console.log(timestamp(`${id}. predicate received ${content.toString('utf-8')}`))
 	return Buffer.compare(content, Buffer.from("hello world")) === 0
 }
 
@@ -22,20 +23,20 @@ checker.on(IntegrityChecker.READY, () => {
 	console.log(timestamp("ready"))
 })
 
-checker.on(IntegrityChecker.CONFLICT_FOUND, ({ relativePath, eventType }) => {
-	console.log(timestamp(`conflict found. ${eventType} ; ${relativePath}`))
+checker.on(IntegrityChecker.CONFLICT_FOUND, ({ relativePath, eventType, id }) => {
+	console.log(timestamp(`${id}. conflict found. ${eventType} ; ${relativePath}`))
 })
 
-checker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ relativePath, eventType }) => {
-	console.log(timestamp(`conflict resolution succeeded. ${eventType} ; ${relativePath}`))
+checker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ relativePath, eventType, id }) => {
+	console.log(timestamp(`${id}. conflict resolution succeeded. ${eventType} ; ${relativePath}`))
 })
 
-checker.on(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, ({ relativePath, error, eventType }) => {
-	console.error(timestamp(`conflict resolution failed. ${eventType} ; ${error} ; ${relativePath}`))
+checker.on(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, ({ relativePath, error, eventType, id }) => {
+	console.error(timestamp(`${id}. conflict resolution failed. ${eventType} ; ${error} ; ${relativePath}`))
 })
 
-checker.on(IntegrityChecker.CHANGE, ({ relativePath, eventType }) => {
-	console.log(timestamp(`detected change. ${eventType} ; ${relativePath}`))
+checker.on(IntegrityChecker.CHANGE, ({ relativePath, eventType, id }) => {
+	console.log(timestamp(`${id}. detected change. ${eventType} ; ${relativePath}`))
 })
 
 beforeShutdown(() => {
