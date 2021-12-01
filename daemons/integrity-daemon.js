@@ -8,8 +8,7 @@ const accessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6Xl
 const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 const fsp = new DropboxProvider(accessToken, __dirname)
 
-const predicate = (content, { id }) => {
-	console.log(timestamp(`${id}. predicate received ${content.toString("utf-8")}`))
+const predicate = (content) => {
 	return Buffer.compare(content, Buffer.from("hello world")) === 0
 }
 

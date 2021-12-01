@@ -20,7 +20,7 @@ class IntegrityChecker extends EventEmitter {
 		this._watchPath = watchPath
 		this._predicate = predicate
 		this._jobQueue = queue(async (job) => {
-			const didPerformRollback = await this._rollbackIfNecessary(job.relativePath, job)
+			const didPerformRollback = await this._rollbackIfNecessary(job)
 			if (didPerformRollback) {
 				this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
 			} else {
@@ -71,55 +71,53 @@ class IntegrityChecker extends EventEmitter {
 	 * @param {full local path to the modified file} fullLocalPath
 	 */
 	async _checkIfRollbackNeeded(fullLocalPath, opts) {
-		const relativePath = path.relative(this._watchPath, fullLocalPath)
+        const job = {
+            ...opts,
+            fullLocalPath,
+            relativePath: path.relative(this._watchPath, fullLocalPath)
+        }
 
-		this.emit(IntegrityChecker.CHANGE, { relativePath, ...opts })
+		this.emit(IntegrityChecker.CHANGE, job)
 
-		const verified = await this.localRevisionIsVerified(relativePath, opts)
+		const localContent = await fs.readFile(fullLocalPath)
+        const verified = this._predicate(localContent)
 		// Start rollback if the file does not satisfy the predicate
 		if (verified) {
-			this.emit(IntegrityChecker.NO_CONFLICT, { relativePath, ...opts })
+			this.emit(IntegrityChecker.NO_CONFLICT, job)
 		} else {
-			this.emit(IntegrityChecker.CONFLICT_FOUND, { relativePath, ...opts })
+			this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 
-			this._jobQueue.push({ relativePath, ...opts })
+			this._jobQueue.push(job)
 		}
 	}
 
-	async localRevisionIsVerified(relativePath, opts) {
-		const content = await fs.readFile(path.join(this._watchPath, relativePath))
-		const verified = this._predicate(content, opts)
-		return verified
-	}
-
-	async _rollbackIfNecessary(relativePath, opts) {
+	async _rollbackIfNecessary(job) {
 		// check if the file has been changed since the rollback was scheduled
-		if (await this.localRevisionIsVerified(relativePath, opts)) {
-			return false
-		}
+		let localContent = await fs.readFile(job.fullLocalPath)
+		if (this._predicate(localContent)) return false // conflict already resolved. Mark no conflict is needed
 
-		const { entries: revisions } = await this._fsp.listRevisions(relativePath)
+		const { entries: revisions } = await this._fsp.listRevisions(job.relativePath)
 
 		for (const revision of revisions) {
-			if (await this.localRevisionIsVerified(relativePath, opts)) {
-				return false
-			}
+			localContent = await fs.readFile(job.fullLocalPath)
+			if (this._predicate(localContent)) return false // conflict already resolved. Mark no conflict is needed
 
-			const content = await this._fsp.downloadRevision(revision.rev)
+			const remoteContent = await this._fsp.downloadRevision(revision.rev)
 
-			const verified = this._predicate(content, opts)
+			const verified = this._predicate(remoteContent)
 
 			if (verified) {
-				if (await this.localRevisionIsVerified(relativePath, opts)) {
-					return false
+				localContent = await fs.readFile(job.fullLocalPath)
+				if (this._predicate(localContent)) {
+					return false // conflict already resolved. Mark no rollback is needed
+				} else {
+					await this._fsp.restoreFile(job.relativePath, revision.rev)
+					return true // mark rollback performed successfylly
 				}
-				console.log("RESTORE FILE", opts.id)
-				await this._fsp.restoreFile(relativePath, revision.rev)
-				return true
 			}
 		}
 
-		throw new Error("None of the " + entries.length + " revisions met the predicate.")
+		throw new Error("None of the " + revisions.length + " revisions met the predicate.")
 	}
 }
 
