@@ -4,7 +4,7 @@ const path = require('path').join(__dirname, "/tmp/write-read-file.txt")
 const fs = require('fs/promises')
 const crypto = require('../crypto')
 
-describe("fuse-crypto-handlers.js", function () {
+describe.skip("fuse-crypto-handlers.js", function () {
     beforeEach('setup test-file', async function () {
         // this also overwrites the (potentially) existing test-file
         await fs.open(path, "w+")

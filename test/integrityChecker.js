@@ -8,7 +8,7 @@ const {
 	setupLocalAndRemoteTestFolder,
 	teardownLocalAndRemoteTestFolder,
 } = require("./testUtil")
-const Rollbacker = require("../rollbacker")
+const IntegrityChecker = require("../integrityChecker")
 
 const dropboxApp = {
 	key: "b2gdry5rbkoq1jm",
@@ -17,12 +17,12 @@ const dropboxApp = {
 		"rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W",
 }
 
-const testdirname = "rollbacker"
+const testdirname = "integrityChecker"
 
 const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
 const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 
-describe.skip("Rollbacker", function () {
+describe("IntegrityChecker", function () {
 	before("setup local and remote test-folder", async function () {
 		await setupLocalAndRemoteTestFolder(__dirname, testdirname, fsp)
 	})
@@ -45,7 +45,7 @@ describe.skip("Rollbacker", function () {
 	})
 
 	it("should rollback a file not meeting a condition until to the most-recent version meeting that condition", async function () {
-		this.timeout(15 * 1000) // fail after 15 seconds
+		this.timeout(30 * 1000) // fail after 15 seconds
 
 		const { promise, reject, resolve } = inversePromise()
 		// create and upload initial, valid file. Note that we write the file to
@@ -63,23 +63,23 @@ describe.skip("Rollbacker", function () {
 		const predicate = (content) => {
 			return Buffer.compare(content, filecontent) === 0
 		}
-		const rollbacker = new Rollbacker({
+		const integrityChecker = new IntegrityChecker({
 			fsp,
 			predicate,
 			watchPath: dropboxClientPath,
 		})
 
-		rollbacker.on(rollbacker.READY, async () => {
+		integrityChecker.on(IntegrityChecker.READY, async () => {
 			// Trigger the rollbacker by mocking an invalid write to the same file
 			await fs.writeFile(localFullPath, Buffer.from("invalid update"))
 			await fsp.upload(relativeFilePath)
 		})
 
-		rollbacker.on(rollbacker.FAILED, () => {
+		integrityChecker.on(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, () => {
 			reject()
 		})
-		rollbacker.on(rollbacker.SUCCESS, ({ relativePath }) => {
-			relativePath === relativeFilePath ? resolve() : reject()
+		integrityChecker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ remotePath }) => {
+			remotePath === relativeFilePath ? resolve() : reject()
 		})
 
 		try {
@@ -87,7 +87,7 @@ describe.skip("Rollbacker", function () {
 		} catch {
 			assert.fail()
 		} finally {
-			await rollbacker.stopWatching()
+			await integrityChecker.stopWatching()
 		}
 	})
 })
