@@ -9,7 +9,7 @@ const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 const fsp = new DropboxProvider(accessToken, __dirname)
 
 const predicate = (content, { id }) => {
-    console.log(timestamp(`${id}. predicate received ${content.toString('utf-8')}`))
+	console.log(timestamp(`${id}. predicate received ${content.toString("utf-8")}`))
 	return Buffer.compare(content, Buffer.from("hello world")) === 0
 }
 
@@ -25,6 +25,10 @@ checker.on(IntegrityChecker.READY, () => {
 
 checker.on(IntegrityChecker.CONFLICT_FOUND, ({ relativePath, eventType, id }) => {
 	console.log(timestamp(`${id}. conflict found. ${eventType} ; ${relativePath}`))
+})
+
+checker.on(IntegrityChecker.NO_CONFLICT, ({ relativePath, eventType, id }) => {
+	console.log(timestamp(`${id}. No conflict. ${eventType} ; ${relativePath}`))
 })
 
 checker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ relativePath, eventType, id }) => {

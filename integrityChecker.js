@@ -3,7 +3,7 @@ const path = require("path")
 const EventEmitter = require("events")
 const fs = require("fs/promises")
 const queue = require("async/queue")
-const { v4: uuidv4 } = require('uuid')
+const { v4: uuidv4 } = require("uuid")
 
 class IntegrityChecker extends EventEmitter {
 	// EVENT NAMES
@@ -20,14 +20,17 @@ class IntegrityChecker extends EventEmitter {
 		this._watchPath = watchPath
 		this._predicate = predicate
 		this._jobQueue = queue(async (job) => {
-			console.log(`${job.id}. processing job: ${job.relativePath}`)
-			await this._rollback(job.relativePath, job)
-            this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+			const didPerformRollback = await this._rollbackIfNecessary(job.relativePath, job)
+			if (didPerformRollback) {
+				this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+			} else {
+				this.emit(IntegrityChecker.NO_CONFLICT, job)
+			}
 		})
 
-        this._jobQueue.error((error, job) => {
-            this.emit(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, { error, ...job })
-        })
+		this._jobQueue.error((error, job) => {
+			this.emit(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, { error, ...job })
+		})
 
 		// setup watcher
 		this._watcher = chokidar.watch(watchPath, {
@@ -72,11 +75,9 @@ class IntegrityChecker extends EventEmitter {
 
 		this.emit(IntegrityChecker.CHANGE, { relativePath, ...opts })
 
-        const content = await fs.readFile(fullLocalPath)
-
-		const satisfied = this._predicate(content, opts)
+		const verified = await this.localRevisionIsVerified(relativePath, opts)
 		// Start rollback if the file does not satisfy the predicate
-		if (satisfied) {
+		if (verified) {
 			this.emit(IntegrityChecker.NO_CONFLICT, { relativePath, ...opts })
 		} else {
 			this.emit(IntegrityChecker.CONFLICT_FOUND, { relativePath, ...opts })
@@ -85,16 +86,36 @@ class IntegrityChecker extends EventEmitter {
 		}
 	}
 
-	async _rollback(relativePath, opts) {
-		const { entries } = await this._fsp.listRevisions(relativePath)
+	async localRevisionIsVerified(relativePath, opts) {
+		const content = await fs.readFile(path.join(this._watchPath, relativePath))
+		const verified = this._predicate(content, opts)
+		return verified
+	}
 
-		for (const entry of entries) {
-			const content = await this._fsp.downloadRevision(entry.rev)
+	async _rollbackIfNecessary(relativePath, opts) {
+		// check if the file has been changed since the rollback was scheduled
+		if (await this.localRevisionIsVerified(relativePath, opts)) {
+			return false
+		}
 
-			const satisfied = this._predicate(content, opts)
+		const { entries: revisions } = await this._fsp.listRevisions(relativePath)
 
-			if (satisfied) {
-				return await this._fsp.restoreFile(relativePath, entry.rev)
+		for (const revision of revisions) {
+			if (await this.localRevisionIsVerified(relativePath, opts)) {
+				return false
+			}
+
+			const content = await this._fsp.downloadRevision(revision.rev)
+
+			const verified = this._predicate(content, opts)
+
+			if (verified) {
+				if (await this.localRevisionIsVerified(relativePath, opts)) {
+					return false
+				}
+				console.log("RESTORE FILE", opts.id)
+				await this._fsp.restoreFile(relativePath, revision.rev)
+				return true
 			}
 		}
 
