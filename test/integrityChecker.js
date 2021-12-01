@@ -45,7 +45,7 @@ describe("IntegrityChecker", function () {
 	})
 
 	it("should rollback a file not meeting a condition until to the most-recent version meeting that condition", async function () {
-		this.timeout(15 * 1000) // fail after 15 seconds
+		this.timeout(30 * 1000) // fail after 15 seconds
 
 		const { promise, reject, resolve } = inversePromise()
 		// create and upload initial, valid file. Note that we write the file to
@@ -78,8 +78,8 @@ describe("IntegrityChecker", function () {
 		integrityChecker.on(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, () => {
 			reject()
 		})
-		integrityChecker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ relativePath }) => {
-			relativePath === relativeFilePath ? resolve() : reject()
+		integrityChecker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ remotePath }) => {
+			remotePath === relativeFilePath ? resolve() : reject()
 		})
 
 		try {
