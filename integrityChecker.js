@@ -5,6 +5,11 @@ const fs = require("fs/promises")
 const queue = require("async/queue")
 const { v4: uuidv4 } = require("uuid")
 
+/// IntegrityChecker reacts to changes on 'watchPatch' (intended to be the dropbox-client)
+/// and verifies each change against 'predicate'.
+/// If a changed file doesn't satisfy 'predicate', the changed file is restored
+/// to its latest revision which satisfies 'predicate'.
+/// Throughout its lifetime, relevant events are emitted for the caller to listen to.
 class IntegrityChecker extends EventEmitter {
 	// EVENT NAMES
 	static READY = "ready"
@@ -19,8 +24,12 @@ class IntegrityChecker extends EventEmitter {
 		this._fsp = fsp
 		this._watchPath = watchPath
 		this._predicate = predicate
-		this._jobQueue = queue(async (job) => {
-			const didPerformRollback = await this._rollbackIfNecessary(job)
+
+        // We use a job-queue for the rollback-jobs.
+        // Jobs are 'push'ed onto the queue and handled by a single worker.
+        // The worker restores the invalid file to its latest valid state
+		this._jobQueue = queue(async (job) => { // This attaches the worker
+			const didPerformRollback = await this._performFileRestoreIfNecessary(job)
 			if (didPerformRollback) {
 				this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
 			} else {
@@ -52,34 +61,33 @@ class IntegrityChecker extends EventEmitter {
 		await this._watcher.close()
 	}
 
-	_onAdd(fullLocalPath) {
-		this._checkIfRollbackNeeded(fullLocalPath, { eventType: "add", id: uuidv4() })
+	_onAdd(localPath) {
+		this._checkIfRollbackNeeded(localPath, { eventType: "add", id: uuidv4() })
 	}
 
-	_onChange(fullLocalPath) {
-		this._checkIfRollbackNeeded(fullLocalPath, { eventType: "change", id: uuidv4() })
+	_onChange(localPath) {
+		this._checkIfRollbackNeeded(localPath, { eventType: "change", id: uuidv4() })
 	}
 
-	_onUnlink(fullLocalPath) {
-		this._checkIfRollbackNeeded(fullLocalPath, { eventType: "unlink", id: uuidv4() })
+	_onUnlink(localPath) {
+		this._checkIfRollbackNeeded(localPath, { eventType: "unlink", id: uuidv4() })
 	}
 
-	/** Checks if the modified file at 'fullLocalPath' satisfies the passed predicate
-	 *  If not, a rollback to the most-recent revision that satisfies the predicate is performed
-	 *  The outcome of the rollback is emitted ('succeeded'/'failed')
+	/** Checks if the modified file at 'localPath' satisfies the predicate given in the constructor
+	 *  If not, the file at 'localPath' is restored to the latest revision which satisfy 'predicate'.
 	 *
-	 * @param {full local path to the modified file} fullLocalPath
+	 * @param {string} localPath
 	 */
-	async _checkIfRollbackNeeded(fullLocalPath, opts) {
+	async _checkIfRollbackNeeded(localPath, opts) {
         const job = {
             ...opts,
-            fullLocalPath,
-            relativePath: path.relative(this._watchPath, fullLocalPath)
+            localPath,
+            remotePath: path.relative(this._watchPath, localPath)
         }
 
 		this.emit(IntegrityChecker.CHANGE, job)
 
-		const localContent = await fs.readFile(fullLocalPath)
+		const localContent = await fs.readFile(localPath)
         const verified = this._predicate(localContent)
 		// Start rollback if the file does not satisfy the predicate
 		if (verified) {
@@ -91,27 +99,37 @@ class IntegrityChecker extends EventEmitter {
 		}
 	}
 
-	async _rollbackIfNecessary(job) {
+    /**
+     *
+     * @param {} remotePath - the remote path of the file to restore. Is optional if 'localPath' is present
+     * @param {} localPath - the local path of the file to restore. Is optional if 'remotePath' is present
+     * @returns {Promise<boolean>} Resolves with 'true' to indicate a rollback for successfully performed.
+     * Resolves with 'false' to indicate a rollback was not necessary
+     * Rejects with error if none of the revisions satisfy the predicate or if a read/write/download file occurs.
+     */
+	async _performFileRestoreIfNecessary({ remotePath, localPath }) {
+        const pathRemote = remotePath || path.relative(this._watchPath, localPath)
+        const pathLocal = localPath || path.join(this._watchPath, remotePath)
 		// check if the file has been changed since the rollback was scheduled
-		let localContent = await fs.readFile(job.fullLocalPath)
-		if (this._predicate(localContent)) return false // conflict already resolved. Mark no conflict is needed
+		let localContent = await fs.readFile(pathLocal)
+		if (this._predicate(localContent)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
 
-		const { entries: revisions } = await this._fsp.listRevisions(job.relativePath)
+		const { entries: revisions } = await this._fsp.listRevisions(pathRemote)
 
 		for (const revision of revisions) {
-			localContent = await fs.readFile(job.fullLocalPath)
-			if (this._predicate(localContent)) return false // conflict already resolved. Mark no conflict is needed
+			localContent = await fs.readFile(pathLocal)
+			if (this._predicate(localContent)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
 
 			const remoteContent = await this._fsp.downloadRevision(revision.rev)
 
 			const verified = this._predicate(remoteContent)
 
 			if (verified) {
-				localContent = await fs.readFile(job.fullLocalPath)
+				localContent = await fs.readFile(pathLocal)
 				if (this._predicate(localContent)) {
-					return false // conflict already resolved. Mark no rollback is needed
+					return false // conflict already resolved by FSP-client. Mark no conflict is needed
 				} else {
-					await this._fsp.restoreFile(job.relativePath, revision.rev)
+					await this._fsp.restoreFile(pathRemote, revision.rev)
 					return true // mark rollback performed successfylly
 				}
 			}
