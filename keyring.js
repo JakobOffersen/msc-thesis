@@ -1,21 +1,14 @@
 const fs = require("fs/promises")
 const { DateTime } = require("luxon")
+const { clone, cloneAll, TYPE_READ, TYPE_VERIFY, TYPE_WRITE } = require("./capability-utils")
 
 class KeyRing {
-	static TYPE_READ = "read"
-	static TYPE_WRITE = "write"
-	static TYPE_VERIFY = "verify"
-
 	constructor(path) {
 		this.path = path
 	}
 
 	async removeCapability(capability) {
-		if (!this._capabilityIsValid(capability))
-			throw new Error(
-				"Cannot remove invalid capability in keyring. Received " +
-					JSON.stringify(capability)
-			)
+		if (!this._capabilityIsValid(capability)) throw new Error("Cannot remove invalid capability in keyring. Received " + JSON.stringify(capability))
 		await this.removeCapabilitiesWithPath(capability.path, capability.type)
 	}
 
@@ -30,10 +23,7 @@ class KeyRing {
 		let capabilities = await this._read()
 
 		capabilities = capabilities.filter((capability) => {
-			return !(
-				capability.path === path &&
-				(!!type ? capability.type === type : true)
-			)
+			return !(capability.path === path && (!!type ? capability.type === type : true))
 		})
 
 		await this._write(capabilities)
@@ -43,24 +33,17 @@ class KeyRing {
 	/// The received capability overrides an already existing entry
 	/// if they have the same 'path' and 'type'
 	async addCapability(capability) {
-        if (!capability.hasOwnProperty('createdAt')) capability.createdAt = DateTime.now()
-        if (!capability.hasOwnProperty('updatedAt')) capability.updatedAt = DateTime.now()
+		if (!capability.hasOwnProperty("createdAt")) capability.createdAt = DateTime.now()
+		if (!capability.hasOwnProperty("updatedAt")) capability.updatedAt = DateTime.now()
 
 		if (!this._capabilityIsValid(capability)) {
-			throw new Error(
-				"Cannot add invalid capability to keyring. Received " +
-					JSON.stringify(capability)
-			)
+			throw new Error("Cannot add invalid capability to keyring. Received " + JSON.stringify(capability))
 		}
 
 		const capabilities = await this._read()
 
 		// Check if keyring already contains a capability for 'path' of 'type'
-		const indexOfExistingcapability = this._indexMatchingPathAndType(
-			capabilities,
-			capability.path,
-			capability.type
-		)
+		const indexOfExistingcapability = this._indexMatchingPathAndType(capabilities, capability.path, capability.type)
 
 		if (indexOfExistingcapability === -1) {
 			capabilities.push(capability)
@@ -72,20 +55,20 @@ class KeyRing {
 		await this._write(capabilities)
 	}
 
-	async getCapabilitiesWithPath(path) {
+	async getCapabilitiesWithPath(path, keytype = "buffer") {
 		const capabilities = await this._read()
-		return capabilities.filter((capability) => capability.path === path)
+		const filtered = capabilities.filter((capability) => capability.path === path)
+		return cloneAll(filtered, keytype)
 	}
 
-	async getCapabilityWithPathAndType(path, type) {
+	async getCapabilityWithPathAndType(path, type, keytype = "buffer") {
 		if (!this._isValidCapabilityType(type)) {
 			throw new Error("Recieved invalid type: " + type)
 		}
 
 		const capabilities = await this._read()
 		for (const capability of capabilities) {
-			if (capability.path === path && capability.type === type)
-				return capability
+			if (capability.path === path && capability.type === type) return clone(capability, keytype)
 		}
 		return null
 	}
@@ -109,8 +92,7 @@ class KeyRing {
 			return ko
 		})
 
-		if (!!types)
-			return capabilities.filter((cap) => types.includes(cap.type))
+		if (!!types) return capabilities.filter((cap) => types.includes(cap.type))
 		else return capabilities
 	}
 
@@ -143,9 +125,7 @@ class KeyRing {
 		const capabilities = await this._read()
 		for (const capability of capabilities) {
 			if (capability.path === path && capability.type === type) {
-				capability.key = Buffer.isBuffer(newKey)
-					? newKey.toString("hex")
-					: newKey
+				capability.key = Buffer.isBuffer(newKey) ? newKey.toString("hex") : newKey
 				capability.updatedAt = DateTime.now()
 				await this._write(capabilities)
 				return true
@@ -169,7 +149,7 @@ class KeyRing {
 	}
 
 	_capabilityIsValid(capability) {
-		return (
+		const res =
 			Object.keys(capability).length === 5 &&
 			capability.hasOwnProperty("createdAt") &&
 			capability.hasOwnProperty("updatedAt") &&
@@ -178,20 +158,15 @@ class KeyRing {
 			capability.hasOwnProperty("path") &&
 			DateTime.isDateTime(DateTime.fromISO(capability.createdAt)) &&
 			DateTime.isDateTime(DateTime.fromISO(capability.updatedAt)) &&
-			[KeyRing.TYPE_READ, KeyRing.TYPE_WRITE, KeyRing.TYPE_VERIFY].includes(
-				capability.type
-			) &&
-			typeof capability.key === "string" &&
+			[TYPE_READ, TYPE_WRITE, TYPE_VERIFY].includes(capability.type) &&
+			(typeof capability.key === "string" || Buffer.isBuffer(capability.key)) &&
 			typeof capability.path === "string"
-		)
+            
+        return res
 	}
 
 	_isValidCapabilityType(type) {
-		return (
-			type === KeyRing.TYPE_READ ||
-			type === KeyRing.TYPE_WRITE ||
-			type === KeyRing.TYPE_VERIFY
-		)
+		return type === TYPE_READ || type === TYPE_WRITE || type === TYPE_VERIFY
 	}
 
 	_indexMatchingPathAndType(capabilities, path, type) {

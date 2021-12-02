@@ -8,7 +8,7 @@ const {
 	setupLocalAndRemoteTestFolder,
 	teardownLocalAndRemoteTestFolder,
 } = require("./testUtil")
-const IntegrityChecker = require("../integrityChecker")
+const IntegrityChecker = require("../integrity-checker")
 
 const dropboxApp = {
 	key: "b2gdry5rbkoq1jm",
@@ -22,7 +22,7 @@ const testdirname = "integrityChecker"
 const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
 const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 
-describe("IntegrityChecker", function () {
+describe.skip("integrity-checker", function () {
 	before("setup local and remote test-folder", async function () {
 		await setupLocalAndRemoteTestFolder(__dirname, testdirname, fsp)
 	})

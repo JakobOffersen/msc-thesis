@@ -1,29 +1,43 @@
-const queue = require('async/queue')
+const crypto = require("./crypto")
+const { DropboxProvider } = require("./storage_providers/storage_provider")
+const fs = require("fs/promises")
+const { DateTime } = require("luxon")
+const { relative, join } = require("path")
 
-const q = queue(async (task) => {
-    console.log("processing task", task)
-    return await new Promise((resolve, reject) => {
-        setTimeout(() => {
-            if (task === "test") reject("no test allowed")
-            else resolve("completed")
-        }, 3000)
-    })
-})
+const accessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
+const fsp = new DropboxProvider(accessToken, __dirname)
 
-q.drain(() => {
-    console.log("drained")
-})
+const writeKey = Buffer.from("ac9b2962b6f65a43140032fc134ab1860345a9f0c224d340cd035f200945d58f54cebd9c7462d6aab282f8cb2b57feef9cc5082450cfb36f76117cefa84143da", "hex")
+const verifyKey = Buffer.from("54cebd9c7462d6aab282f8cb2b57feef9cc5082450cfb36f76117cefa84143da", "hex")
+const filename = join(__dirname, "daemons", "test-file.txt")
+const filecontent = "this is a signed message"
 
-q.error((error, task) => {
-    console.log("error", error, task)
-})
+function timestamp(msg) {
+	const format = { ...DateTime.TIME_24_WITH_SECONDS, ...DateTime.DATE_SHORT }
+	return `[${DateTime.now().toLocaleString(format)}] ${msg}`
+}
 
-q.push("hello world", (err, result) => {
-    if (err) console.log("err", err)
-    else console.log("push", result)
-})
+const uploadValidFile = async () => {
+	const timestamped = timestamp(filecontent)
 
-q.push("test", (err, result) => {
-    if (err) console.log("err", err)
-    else console.log("push", result)
-})
+	const signedMessage = crypto.signCombined(Buffer.from(timestamped), writeKey)
+	await fs.writeFile(filename, signedMessage)
+
+	await fsp.upload(relative(__dirname, filename))
+}
+
+const downloadAndVerify = async () => {
+	const content = await fsp.downloadFile(relative(__dirname, filename), { shouldWriteToDisk: false })
+    const res = crypto.verifyCombined(content.fileBinary, verifyKey)
+    console.log(res)
+}
+
+const uploadInvalidFile = async () => {
+    const timestamped = timestamp("this is INVALID!")
+    await fs.writeFile(filename, Buffer.from(timestamped))
+    await fsp.upload(relative(__dirname, filename))
+}
+
+;(async () => {
+	await uploadValidFile()
+})()
