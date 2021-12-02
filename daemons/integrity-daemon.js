@@ -19,11 +19,16 @@ const kr = new KeyRing(join(__dirname, "mock.keyring"))
 const testfilename = join(__dirname, "test-file.txt")
 
 const verifySignature = async (content) => {
-	const verifyCapability = await kr.getCapabilityWithPathAndType(testfilename, "verify")
+	const keytype = "buffer"
+	const verifyCapability = await kr.getCapabilityWithPathAndType(testfilename, "verify", keytype)
 	if (verifyCapability === null) return true // allow changes to files for which we don't have the key
-    console.log("CAP!!!", verifyCapability)
-	const { verified } = crypto.verifyCombined(content, verifyCapability.key)
-	return verified
+	try {
+		const { verified } = crypto.verifyCombined(content, verifyCapability.key)
+		return verified
+	} catch {
+        // format error. Could be if a short file has no signature at all.
+        return false
+    }
 }
 
 const checker = new IntegrityChecker({

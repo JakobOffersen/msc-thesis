@@ -39,5 +39,5 @@ const uploadInvalidFile = async () => {
 }
 
 ;(async () => {
-	await uploadValidFile()
+	await uploadInvalidFile()
 })()

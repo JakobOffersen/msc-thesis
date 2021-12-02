@@ -88,7 +88,7 @@ class IntegrityChecker extends EventEmitter {
 		this.emit(IntegrityChecker.CHANGE, job)
 
 		const localContent = await fs.readFile(localPath)
-        const verified = this._predicate(localContent)
+        const verified = await this._predicate(localContent)
 		// Start rollback if the file does not satisfy the predicate
 		if (verified) {
 			this.emit(IntegrityChecker.NO_CONFLICT, job)
@@ -112,21 +112,21 @@ class IntegrityChecker extends EventEmitter {
         const pathLocal = localPath || path.join(this._watchPath, remotePath)
 		// check if the file has been changed since the rollback was scheduled
 		let localContent = await fs.readFile(pathLocal)
-		if (this._predicate(localContent)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
+		if (await this._predicate(localContent)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
 
 		const { entries: revisions } = await this._fsp.listRevisions(pathRemote)
 
 		for (const revision of revisions) {
 			localContent = await fs.readFile(pathLocal)
-			if (this._predicate(localContent)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
+			if (await this._predicate(localContent)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
 
 			const remoteContent = await this._fsp.downloadRevision(revision.rev)
 
-			const verified = this._predicate(remoteContent)
+			const verified = await this._predicate(remoteContent)
 
 			if (verified) {
 				localContent = await fs.readFile(pathLocal)
-				if (this._predicate(localContent)) {
+				if (await this._predicate(localContent)) {
 					return false // conflict already resolved by FSP-client. Mark no conflict is needed
 				} else {
 					await this._fsp.restoreFile(pathRemote, revision.rev)
