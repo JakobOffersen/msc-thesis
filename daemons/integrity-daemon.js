@@ -18,7 +18,7 @@ const fsp = new DropboxProvider(accessToken, __dirname)
 const kr = new KeyRing(join(__dirname, "mock.keyring"))
 const testfilename = join(__dirname, "test-file.txt")
 
-const verifySignature = async (content) => {
+const verifySignature = async ({ content, remotePath }) => {
 	const keytype = "buffer"
 	const verifyCapability = await kr.getCapabilityWithPathAndType(testfilename, "verify", keytype)
 	if (verifyCapability === null) return true // allow changes to files for which we don't have the key
