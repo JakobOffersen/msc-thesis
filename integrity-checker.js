@@ -25,10 +25,11 @@ class IntegrityChecker extends EventEmitter {
 		this._watchPath = watchPath
 		this._predicate = predicate
 
-        // We use a job-queue for the rollback-jobs.
-        // Jobs are 'push'ed onto the queue and handled by a single worker.
-        // The worker restores the invalid file to its latest valid state
-		this._jobQueue = queue(async (job) => { // This attaches the worker
+		// We use a job-queue for the rollback-jobs.
+		// Jobs are 'push'ed onto the queue and handled by a single worker.
+		// The worker restores the invalid file to its latest valid state
+		this._jobQueue = queue(async (job) => {
+			// This attaches the worker
 			const didPerformRollback = await this._performFileRestoreIfNecessary(job)
 			if (didPerformRollback) {
 				this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
@@ -79,63 +80,77 @@ class IntegrityChecker extends EventEmitter {
 	 * @param {string} localPath
 	 */
 	async _checkIfRollbackNeeded(localPath, opts) {
-        const job = {
-            ...opts,
-            localPath,
-            remotePath: path.relative(this._watchPath, localPath)
-        }
+		const job = {
+			...opts,
+			localPath,
+			remotePath: path.relative(this._watchPath, localPath),
+		}
 
 		this.emit(IntegrityChecker.CHANGE, job)
 
-		const localContent = await fs.readFile(localPath)
-        const verified = await this._predicate({ content: localContent, remotePath: job.remotePath })
-		// Start rollback if the file does not satisfy the predicate
-		if (verified) {
-			this.emit(IntegrityChecker.NO_CONFLICT, job)
-		} else {
-			this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+		try {
+			const localContent = await fs.readFile(localPath)
+			const verified = await this._predicate({ content: localContent, remotePath: job.remotePath })
+			// Start rollback if the file does not satisfy the predicate
+			if (verified) {
+				this.emit(IntegrityChecker.NO_CONFLICT, job)
+			} else {
+				this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 
+				this._jobQueue.push(job)
+			}
+		} catch {
+			// the file at 'localPath' was deleted. ALl deletes are determined to be invalid
+			// since no signature verification can occur on them.
+			this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 			this._jobQueue.push(job)
 		}
 	}
 
-    /**
-     *
-     * @param {} remotePath - the remote path of the file to restore. Is optional if 'localPath' is present
-     * @param {} localPath - the local path of the file to restore. Is optional if 'remotePath' is present
-     * @returns {Promise<boolean>} Resolves with 'true' to indicate a rollback for successfully performed.
-     * Resolves with 'false' to indicate a rollback was not necessary
-     * Rejects with error if none of the revisions satisfy the predicate or if a read/write/download file occurs.
-     */
+	/**
+	 *
+	 * @param {} remotePath - the remote path of the file to restore. Is optional if 'localPath' is present
+	 * @param {} localPath - the local path of the file to restore. Is optional if 'remotePath' is present
+	 * @returns {Promise<boolean>} Resolves with 'true' to indicate a rollback for successfully performed.
+	 * Resolves with 'false' to indicate a rollback was not necessary
+	 * Rejects with error if none of the revisions satisfy the predicate or if a read/write/download file occurs.
+	 */
+    //TODO: Use only remote path. To use both seems stupid
 	async _performFileRestoreIfNecessary({ remotePath, localPath }) {
-        const pathRemote = remotePath || path.relative(this._watchPath, localPath)
-        const pathLocal = localPath || path.join(this._watchPath, remotePath)
-		// check if the file has been changed since the rollback was scheduled
-		let localContent = await fs.readFile(pathLocal)
-		if (await this._predicate({ content: localContent, remotePath: pathRemote })) return false // conflict already resolved by FSP-client. Mark no conflict is needed
+		const pathRemote = remotePath || path.relative(this._watchPath, localPath)
+		const pathLocal = localPath || path.join(this._watchPath, remotePath)
+
+		// check if the file has been changed since the rollback was scheduled to avoid to make an unnecessary restore
+		if (await this.isLocalContentVerified(pathLocal, pathRemote)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
 
 		const { entries: revisions } = await this._fsp.listRevisions(pathRemote)
 
 		for (const revision of revisions) {
-			localContent = await fs.readFile(pathLocal)
-			if (await this._predicate({ content: localContent, remotePath: pathRemote } )) return false // conflict already resolved by FSP-client. Mark no conflict is needed
+			if (await this.isLocalContentVerified(pathLocal, pathRemote)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
 
 			const remoteContent = await this._fsp.downloadRevision(revision.rev)
 
 			const verified = await this._predicate({ content: remoteContent, remotePath: pathRemote })
 
 			if (verified) {
-				localContent = await fs.readFile(pathLocal)
-				if (await this._predicate({ content: localContent, remotePath: pathRemote })) {
-					return false // conflict already resolved by FSP-client. Mark no conflict is needed
-				} else {
-					await this._fsp.restoreFile(pathRemote, revision.rev)
-					return true // mark rollback performed successfylly
-				}
+				if (await this.isLocalContentVerified(pathLocal, pathRemote)) return false // conflict already resolved by FSP-client. Mark no conflict is needed
+
+                await this._fsp.restoreFile(pathRemote, revision.rev)
+				return true // mark rollback performed successfylly
 			}
 		}
 
 		throw new Error("None of the " + revisions.length + " revisions met the predicate.")
+	}
+
+    //TODO: Use only remotePath. To have both is stupid
+	async isLocalContentVerified(pathLocal, remotePath) {
+		try {
+			localContent = await fs.readFile(pathLocal)
+			return await this._predicate({ content: localContent, remotePath: remotePath })
+		} catch {
+			return false // a deleted file cannot be verified
+		}
 	}
 }
 

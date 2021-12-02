@@ -236,7 +236,7 @@ class DropboxProvider extends StorageProvider {
 
     async listRevisions(relativeFilePath) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
-        const response = await this.client.filesListRevisions({ path: fullPathRemote, mode: "path" })
+        const response = await this.client.filesListRevisions({ path: fullPathRemote, mode: "path", limit: 100 })
         return response.result
     }
 

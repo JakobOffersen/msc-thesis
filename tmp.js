@@ -28,16 +28,20 @@ const uploadValidFile = async () => {
 
 const downloadAndVerify = async () => {
 	const content = await fsp.downloadFile(relative(__dirname, filename), { shouldWriteToDisk: false })
-    const res = crypto.verifyCombined(content.fileBinary, verifyKey)
-    console.log(res)
+	const res = crypto.verifyCombined(content.fileBinary, verifyKey)
+	console.log(res)
+}
+
+const deleteFile = async () => {
+	await fsp.delete(relative(__dirname, filename))
 }
 
 const uploadInvalidFile = async () => {
-    const timestamped = timestamp("this is INVALID!")
-    await fs.writeFile(filename, Buffer.from(timestamped))
-    await fsp.upload(relative(__dirname, filename))
+	const timestamped = timestamp("this is INVALID!")
+	await fs.writeFile(filename, Buffer.from(timestamped))
+	await fsp.upload(relative(__dirname, filename))
 }
 
 ;(async () => {
-	await uploadInvalidFile()
+	await deleteFile()
 })()
