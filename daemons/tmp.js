@@ -1,5 +1,5 @@
-const crypto = require("./crypto")
-const { DropboxProvider } = require("./storage_providers/storage_provider")
+const crypto = require("../crypto")
+const { DropboxProvider } = require("../storage_providers/storage_provider")
 const fs = require("fs/promises")
 const { DateTime } = require("luxon")
 const { relative, join } = require("path")
