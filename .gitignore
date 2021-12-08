@@ -185,3 +185,5 @@ package-lock.json
 
 # test-folder for storing temporary files
 /test/tmp/*
+
+*.keyring
