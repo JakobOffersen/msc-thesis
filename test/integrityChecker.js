@@ -22,7 +22,7 @@ const testdirname = "integrityChecker"
 const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
 const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 
-describe.skip("integrity-checker", function () {
+describe("integrity-checker", function () {
 	before("setup local and remote test-folder", async function () {
 		await setupLocalAndRemoteTestFolder(__dirname, testdirname, fsp)
 	})
@@ -60,7 +60,7 @@ describe.skip("integrity-checker", function () {
 
 		// setup rollbacker to watch our local dropbox-client directory
 		// 'predicate' returns 'true' if the revision's content is equal to 'filecontent'
-		const predicate = (content) => {
+		const predicate = ({ content }) => {
 			return Buffer.compare(content, filecontent) === 0
 		}
 		const integrityChecker = new IntegrityChecker({

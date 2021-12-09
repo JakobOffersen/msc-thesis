@@ -19,6 +19,7 @@ class IntegrityChecker extends EventEmitter {
 	static CONFLICT_FOUND = "conflict-found"
 	static CONFLICT_RESOLUTION_FAILED = "conflict-resolution-failed"
 	static CONFLICT_RESOLUTION_SUCCEEDED = "conflict-resolution-succeeded"
+    static EQUIVALENT_CONFLICT_IS_PENDING = "equivalent-conflict-is-pending"
 
 	constructor({ fsp, watchPath, predicate }) {
 		super()
@@ -28,9 +29,16 @@ class IntegrityChecker extends EventEmitter {
 
 		// We use a job-queue for the rollback-jobs.
 		// Jobs are 'push'ed onto the queue and handled by a single worker.
-		// The worker restores the invalid file to its latest valid state
+		// The worker (the callback below) restores the invalid file to its latest valid state
 		this._jobQueue = queue(async (job) => {
-			// This attaches the worker
+            // Performance optimization: If an equivalent job is already pending,
+            // then it will perform the rollback that this job requests.
+            // Thus this job is reduntant and we can mark it as completed prematurely.
+            // This is purely a performance optimization.
+			if (this._equivalentJobIsPending(job)) {
+                this.emit(EQUIVALENT_CONFLICT_IS_PENDING, job)
+            }
+
 			const didPerformRollback = await this._performFileRestoreIfNecessary(job)
 			if (didPerformRollback) {
 				this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
@@ -39,6 +47,7 @@ class IntegrityChecker extends EventEmitter {
 			}
 		})
 
+        // This is called if any worker fails (e.g throws an error)
 		this._jobQueue.error((error, job) => {
 			this.emit(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, { error, ...job })
 		})
@@ -64,15 +73,15 @@ class IntegrityChecker extends EventEmitter {
 	}
 
 	_onAdd(localPath) {
-		this._checkIfRollbackNeeded(localPath, { eventType: "add", id: uuidv4() })
+		this._checkIfRollbackNeeded(localPath, { eventType: "add" })
 	}
 
 	_onChange(localPath) {
-		this._checkIfRollbackNeeded(localPath, { eventType: "change", id: uuidv4() })
+		this._checkIfRollbackNeeded(localPath, { eventType: "change" })
 	}
 
 	_onUnlink(localPath) {
-		this._checkIfRollbackNeeded(localPath, { eventType: "unlink", id: uuidv4() })
+		this._checkIfRollbackNeeded(localPath, { eventType: "unlink" })
 	}
 
 	/** Checks if the modified file at 'localPath' satisfies the predicate given in the constructor
@@ -148,6 +157,11 @@ class IntegrityChecker extends EventEmitter {
 		} catch {
 			return false // a deleted file cannot be verified
 		}
+	}
+
+	_equivalentJobIsPending(job) {
+		const pendingJobs = [...this._jobQueue]
+		return pendingJobs.some((j) => j.remotePath === job.remotePath)
 	}
 }
 

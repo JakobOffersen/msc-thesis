@@ -5,6 +5,7 @@ const { DateTime } = require("luxon")
 const KeyRing = require("../keyring")
 const crypto = require("../crypto")
 const { join } = require("path")
+const { contentIsMarkedAsDeleted, verifyDeleteFileContent } = require("../file-delete-utils")
 
 //TODO: Træk dropbox-client-path og accessToken ud i .env/config-fil
 const accessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
@@ -18,17 +19,30 @@ const fsp = new DropboxProvider(accessToken, __dirname)
 const kr = new KeyRing(join(__dirname, "mock.keyring"))
 const testfilename = join(__dirname, "test-file.txt")
 
+//TODO: How do we ensure that valid writes to already-deleted (with mark) are rejected?
 const verifySignature = async ({ content, remotePath }) => {
-	const keytype = "buffer"
-	const verifyCapability = await kr.getCapabilityWithPathAndType(testfilename, "verify", keytype)
-	if (verifyCapability === null) return true // allow changes to files for which we don't have the key
-	try {
-		const { verified } = crypto.verifyCombined(content, verifyCapability.key)
+	const verifyCapability = await kr.getCapabilityWithPathAndType(testfilename, "verify")
+
+	if (contentIsMarkedAsDeleted(content)) {
+        const latestRevisionID = await fetchLatestRevisionID(remotePath)
+		const verified = verifyDeleteFileContent(content, verifyCapability.key, latestRevisionID)
+		console.log(timestamp(`${remotePath}: marked as deleted. Verified: ${verified}`))
 		return verified
-	} catch {
-        // format error. Could be if a short file has no signature at all.
-        return false
-    }
+	} else {
+		// is a regular write-operation: verify the signature
+		try {
+			const { verified } = crypto.verifyCombined(content, verifyCapability.key) // could throw if 'content' is too short
+			return verified
+		} catch {
+			return false
+		}
+	}
+}
+
+const fetchLatestRevisionID = async (remotePath) => {
+	const { entries } = await fsp.listRevisions(remotePath)
+	const entry = entries[1] // [0] is the revision of the file that contains 'content'. Look at the one before that
+    return entry.rev
 }
 
 const checker = new IntegrityChecker({
@@ -41,24 +55,28 @@ checker.on(IntegrityChecker.READY, () => {
 	console.log(timestamp("ready"))
 })
 
-checker.on(IntegrityChecker.CONFLICT_FOUND, ({ remotePath, eventType, id }) => {
-	console.log(timestamp(`${id}. conflict found. ${eventType} ; ${remotePath}`))
+checker.on(IntegrityChecker.CONFLICT_FOUND, ({ remotePath }) => {
+	console.log(timestamp(`${remotePath}: conflict found.`))
 })
 
-checker.on(IntegrityChecker.NO_CONFLICT, ({ remotePath, eventType, id }) => {
-	console.log(timestamp(`${id}. No conflict. ${eventType} ; ${remotePath}`))
+checker.on(IntegrityChecker.NO_CONFLICT, ({ remotePath }) => {
+	console.log(timestamp(`${remotePath}: No conflict.`))
 })
 
-checker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ remotePath, eventType, id }) => {
-	console.log(timestamp(`${id}. conflict resolution succeeded. ${eventType} ; ${remotePath}`))
+checker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ remotePath }) => {
+	console.log(timestamp(`${remotePath}: conflict resolution succeeded `))
 })
 
-checker.on(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, ({ remotePath, error, eventType, id }) => {
-	console.error(timestamp(`${id}. conflict resolution failed. ${eventType} ; ${error} ; ${remotePath}`))
+checker.on(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, ({ remotePath, error }) => {
+	console.error(timestamp(`${remotePath}: conflict resolution failed. Error: ${error}`))
 })
 
-checker.on(IntegrityChecker.CHANGE, ({ remotePath, eventType, id }) => {
-	console.log(timestamp(`${id}. detected change. ${eventType} ; ${remotePath}`))
+checker.on(IntegrityChecker.CHANGE, ({ remotePath, eventType }) => {
+	console.log(timestamp(`${remotePath}: detected '${eventType}'`))
+})
+
+checker.on(IntegrityChecker.EQUIVALENT_CONFLICT_IS_PENDING, ({ remotePath }) => {
+	console.log(timestamp(`${remotePath}: equivalent conflict is already pending on job queue`))
 })
 
 beforeShutdown(() => {
