@@ -21,6 +21,7 @@
             "runtimeArgs": [
               "${workspaceRoot}/node_modules/.bin/mocha",
               "--inspect-brk",
+              "--no-timeouts",
               "${relativeFile}",
             ],
             "console": "integratedTerminal",

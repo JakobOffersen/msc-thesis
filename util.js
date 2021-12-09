@@ -12,12 +12,11 @@ class FSError extends Error {
 function callbackify(fn) {
     const SUCCESS = 0
     const fnLength = fn.length
-    
+
     return function () {
         const args = [].slice.call(arguments)
         const ctx = this
-        if (args.length === fnLength + 1 &&
-            typeof args[fnLength] === "function") {
+        if (args.length === fnLength + 1 && typeof args[fnLength] === "function") {
             // callback mode
             const cb = args.pop()
             fn.apply(this, args)
@@ -28,8 +27,9 @@ function callbackify(fn) {
                     let code = -999
                     if (err instanceof FSError) {
                         code = err.code
+                    } else {
+                        console.log(err)
                     }
-                    console.error(err)
 
                     cb.call(ctx, code)
                 })
@@ -50,7 +50,23 @@ function callbackifyHandlers(handlers) {
     }
 }
 
+function callbackifyHandlersObj(handlers) {
+    const exlcuded = ["constructor"]
+    const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(handlers))
+    const obj = {}
 
+    // Callbackify async handlers
+    for (let key of methods) {
+        if (exlcuded.includes(key)) continue
+
+        const fn = handlers[key]
+        if (isAsyncFunction(fn)) {
+            obj[key] = callbackify(fn).bind(handlers)
+        }
+    }
+
+    return obj
+}
 
 function beforeShutdown(handler) {
     SHUTDOWN_HANDLERS.push(handler)
@@ -58,7 +74,7 @@ function beforeShutdown(handler) {
 
 const SHUTDOWN_HANDLERS = []
 const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "uncaughtException"]
-const exitHandler = async (signal) => {
+const exitHandler = async signal => {
     console.warn(`Shutting down: received ${signal}`)
     console.error(signal)
 
@@ -79,5 +95,6 @@ module.exports = {
     FSError,
     callbackify,
     callbackifyHandlers,
+    callbackifyHandlersObj,
     beforeShutdown
 }

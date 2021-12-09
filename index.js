@@ -1,36 +1,26 @@
-const fs = require("fs")
-const path = require("path")
+const { resolve } = require("path")
 const Fuse = require("fuse-native")
 const { promisify } = require("util")
-const { beforeShutdown, callbackifyHandlers } = require("./util")
-const handlers = require("./fuse-crypto-handlers")
+const { beforeShutdown, callbackifyHandlersObj } = require("./util")
+const { FuseHandlers } = require("./fuse-crypto-handlers")
+const KeyProvider = require("./key-provider")
 
-callbackifyHandlers(handlers)
-
-const MOUNT_DIR = "./mnt"
-const CACHE_DIR = "./cache"
+const keyProvider = new KeyProvider()
+const MOUNT_DIR = resolve("./mnt")
+const handlers = new FuseHandlers(MOUNT_DIR, keyProvider)
 
 const opts = {
     force: true,
-    ...handlers
+    ...callbackifyHandlersObj(handlers)
 }
 
 const fuse = new Fuse(MOUNT_DIR, handlers, { debug: true, mkdir: true })
-
-// fs.stat("/Users/augustheegaard/Desktop/MSc/msc-thesis/fsp/", (err, stats) => {
-//     console.log(err, stats)
-// })
 
 fuse.mount(function (err) {
     if (err) {
         console.error(err)
         return
     }
-
-    // fs.readFile(path.join(MOUNT_DIR, 'test'), function (err, buf) {
-    //     // buf should be 'hello world'
-    //     console.log(err, buf)
-    // })
 })
 
 const unmount = promisify(fuse.unmount).bind(fuse)

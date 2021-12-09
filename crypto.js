@@ -117,7 +117,7 @@ function streamXOR(input, nonce, initializationCounter, key) {
 
 // - XChaCha20 crypt-streams. En/Decrypting streams using xchacha20. TODO: Refactor into own file
 /**
- * Decrypts a slice of 'cipher', which has been encrypted using 'nonce' and 'key' using XChaCha20.
+ * Decrypts a slice of 'cipher', which has been encrypted with 'nonce' and 'key' using XChaCha20.
  * The slice starts at 'position' (is included) and ends 'length' elements later.
  * If the slice exceeds 'cipher', the slice ends at the end of 'cipher'.
  * @param {Buffer} cipher
@@ -158,11 +158,11 @@ function decryptSlice(cipher, nonce, key, position, length) {
  *      original cipher = [B1, B2, B3, B4, B5], where each B is a block (64 bytes each)
  *      Say 'position' = 77
  *      Then 'position' points to B2, and it is assumed that the 'cipher' passed to this function also starts at B2.
- * @param {* Buffer} cipher
- * @param {* Buffer (24 bytes)} nonce
- * @param {* Buffer (32 bytes)} key
- * @param {* integer (non-negative)} position
- * @param {* integer (non-negative)} length
+ * @param {Buffer} cipher
+ * @param {Buffer} nonce (24 bytes)
+ * @param {Buffer} key (32 bytes)
+ * @param {number} position (non-negative)
+ * @param {number} length (non-negative)
  * @returns Buffer. Is truncated if the requested slice overflows 'cipher'
  */
 function decryptSlice2(cipher, nonce, key, position, length) { //TODO: Come up with a better name
