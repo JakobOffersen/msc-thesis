@@ -8,6 +8,7 @@ Since most handlers are called with a file descriptor that we need to operate on
 use the fs module and provide promise support ourselves.
 */
 module.exports = {
+    open: promisify(fsS.open).bind(fsS),
     read: promisify(fsS.read).bind(fsS),
     write: promisify(fsS.write).bind(fsS),
     truncate: promisify(fsS.truncate).bind(fsS),

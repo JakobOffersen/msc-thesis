@@ -6,15 +6,18 @@ const { FuseHandlers } = require("./fuse-crypto-handlers")
 const KeyProvider = require("./key-provider")
 
 const keyProvider = new KeyProvider()
+const BASE_DIR = resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")
-const handlers = new FuseHandlers(MOUNT_DIR, keyProvider)
+const handlers = new FuseHandlers(BASE_DIR, keyProvider)
+const cbHandlers = callbackifyHandlersObj(handlers)
 
 const opts = {
     force: true,
-    ...callbackifyHandlersObj(handlers)
+    debug: true,
+    mkdir: true
 }
 
-const fuse = new Fuse(MOUNT_DIR, handlers, { debug: true, mkdir: true })
+const fuse = new Fuse(MOUNT_DIR, cbHandlers, opts)
 
 fuse.mount(function (err) {
     if (err) {

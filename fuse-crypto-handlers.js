@@ -35,8 +35,12 @@ class FileReader {
         return this._state.i.writeUInt32LE(value + 1) // The counter starts at 1
     }
 
-    async init() {
+    async #init() {
         this.fileSize = (await fsFns.fstat(this.fd)).size
+
+        if (this.fileSize < sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES) {
+            throw new Error("Invalid file")
+        }
 
         const header = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES)
         await fsFns.read(this.fd, header, 0, header.byteLength, 0)
@@ -327,10 +331,9 @@ class FuseHandlers {
     // async removexattr(path, name) { throw FSError.operationNotSupported }
 
     async open(path, flags) {
-        // console.log("[Open]", path, flags)
+        console.log("[Open]", path, flags)
         const fullPath = this.#resolvedPath(path)
-        const file = await fs.open(fullPath, flags)
-        const fd = file.fd
+        const fd = await fsFns.open(fullPath, flags)
         const key = this.keyProvider.getKeyForPath(path)
 
         this.readers.set(fd, new FileReader(fd, key))
@@ -433,8 +436,8 @@ class FuseHandlers {
 
     async create(path, mode) {
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
-        const fd = await fs.open(this.#resolvedPath(path), "wx+", mode)
-        await fd.close()
+        const file = await fs.open(this.#resolvedPath(path), "wx+", mode)
+        await file.close()
     }
 
     async utimens(path, atime, mtime) {
