@@ -1,4 +1,4 @@
-const sodium = require('sodium-native')
+const sodium = require("sodium-native")
 
 const STREAM_BLOCK_SIZE = 64
 
@@ -18,14 +18,14 @@ function makeSymmetricKey() {
 function splitNonceAndCipher(nonceAndCipher) {
     const nonceLength = sodium.crypto_secretbox_NONCEBYTES
     return {
-        nonce: nonceAndCipher.slice(0, nonceLength),    // first 'nonceLength' bytes
-        cipher: nonceAndCipher.slice(nonceLength)       // remaining bytes
+        nonce: nonceAndCipher.slice(0, nonceLength), // first 'nonceLength' bytes
+        cipher: nonceAndCipher.slice(nonceLength) // remaining bytes
     }
 }
 
 function encrypt(plainMessage, key) {
     let ciphertext = Buffer.alloc(plainMessage.length + sodium.crypto_secretbox_MACBYTES)
-    let message = Buffer.from(plainMessage, 'utf-8')
+    let message = Buffer.from(plainMessage, "utf-8")
     let nonce = makeNonce()
 
     sodium.crypto_secretbox_easy(ciphertext, message, nonce, key)
@@ -34,7 +34,7 @@ function encrypt(plainMessage, key) {
 }
 
 function encryptWithPublicKey(plainMessage, recipientPublicKey) {
-    let m = Buffer.from(plainMessage, 'utf-8')
+    let m = Buffer.from(plainMessage, "utf-8")
     let ciphertext = Buffer.alloc(m.length + sodium.crypto_box_SEALBYTES)
     sodium.crypto_box_seal(ciphertext, m, recipientPublicKey)
     return ciphertext
@@ -77,7 +77,7 @@ function makeSigningKeyPair() {
     let sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
     let pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
     sodium.crypto_sign_keypair(pk, sk)
-    return {sk, pk}
+    return { sk, pk }
 }
 
 function makeEncryptionKeyPair() {
@@ -102,7 +102,7 @@ function signCombined(message, sk) {
 function verifyCombined(signedMessage, pk) {
     let message = Buffer.alloc(signedMessage.length - sodium.crypto_sign_BYTES)
     const verified = sodium.crypto_sign_open(message, signedMessage, pk)
-    return { verified, message : verified ? message : null }
+    return { verified, message: verified ? message : null }
 }
 
 function verifyDetached(signature, message, pk) {
@@ -128,16 +128,17 @@ function streamXOR(input, nonce, initializationCounter, key) {
  * @returns {Buffer} the decrypted slice
  */
 function decryptSlice(cipher, nonce, key, position, length) {
-    if (!Number.isInteger(position)) throw new Error ("'position' must be integer but received " + position)
+    if (!Number.isInteger(position)) throw new Error("'position' must be integer but received " + position)
     if (position < 0) throw new Error("'position' must be non-negative but received " + position)
-    if (!Number.isInteger(length)) throw new Error ("'length' must be integer but received " + length)
+    if (!Number.isInteger(length)) throw new Error("'length' must be integer but received " + length)
     if (length < 0) throw new Error("'length' must be non-negative but received " + length)
 
-    const ic = Math.floor(position / STREAM_BLOCK_SIZE)             // the block containing 'position' (i.e the first block)
-    const blockCount = Math.floor(length / STREAM_BLOCK_SIZE) + 1   // the number of blocks to decrypt.
+    const ic = Math.floor(position / STREAM_BLOCK_SIZE) // the block containing 'position' (i.e the first block)
+    const blockCount = Math.floor(length / STREAM_BLOCK_SIZE) + 1 // the number of blocks to decrypt.
 
     const startPositionOfFirstBlock = ic * STREAM_BLOCK_SIZE
-    const endPositionOfLastBlock = Math.min( // The end position can at most be the index of the last element in 'cipher'.
+    const endPositionOfLastBlock = Math.min(
+        // The end position can at most be the index of the last element in 'cipher'.
         (ic + blockCount) * STREAM_BLOCK_SIZE - 1,
         cipher.length - 1
     )
@@ -165,10 +166,11 @@ function decryptSlice(cipher, nonce, key, position, length) {
  * @param {number} length (non-negative)
  * @returns Buffer. Is truncated if the requested slice overflows 'cipher'
  */
-function decryptSlice2(cipher, nonce, key, position, length) { //TODO: Come up with a better name
-    if (!Number.isInteger(position)) throw new Error ("'position' must be integer but received " + position)
+function decryptSlice2(cipher, nonce, key, position, length) {
+    //TODO: Come up with a better name
+    if (!Number.isInteger(position)) throw new Error("'position' must be integer but received " + position)
     if (position < 0) throw new Error("'position' must be non-negative but received " + position)
-    if (!Number.isInteger(length)) throw new Error ("'length' must be integer but received " + length)
+    if (!Number.isInteger(length)) throw new Error("'length' must be integer but received " + length)
     if (length < 0) throw new Error("'length' must be non-negative but received " + length)
 
     const ic = Math.floor(position / STREAM_BLOCK_SIZE)
@@ -190,10 +192,10 @@ function decryptSlice2(cipher, nonce, key, position, length) { //TODO: Come up w
  * @returns cipher
  */
 function encryptSlice(cipher, nonce, key, buffer, position, length) {
-    if (!Number.isInteger(position)) throw new Error("position must be integer but received " + typeof(position))
+    if (!Number.isInteger(position)) throw new Error("position must be integer but received " + typeof position)
     if (position < 0) throw new Error("'position' must be non-negagive, but received " + position)
     if (position > cipher.length) throw new Error("'position' must be greater or less than cipher.length but received " + position)
-    if (!Number.isInteger(length)) throw new Error("length must be integer but received " + typeof(length))
+    if (!Number.isInteger(length)) throw new Error("length must be integer but received " + typeof length)
     if (length < 0) throw new Error("'length' must be non-negagive, but received " + length)
 
     // Compute the version of 'ic' for the underlying xor-stream used to encrypt 'cipher' up until 'position'. This assumes ic started at 0
@@ -214,7 +216,7 @@ function encryptSlice(cipher, nonce, key, buffer, position, length) {
     const decryptedStreamStartingFromBlockContainingPosition = streamXOR(cipherSliceFromBlockContainingPosition, nonce, ic, key)
 
     // Split the block containing 'position' into two slices: [0, position[ (denoted blockPre) and [position, end-of-block] (denoted blockPost)
-    const blockPre  = decryptedStreamStartingFromBlockContainingPosition.slice(0, position % STREAM_BLOCK_SIZE)
+    const blockPre = decryptedStreamStartingFromBlockContainingPosition.slice(0, position % STREAM_BLOCK_SIZE)
     const blockPost = decryptedStreamStartingFromBlockContainingPosition.slice(position % STREAM_BLOCK_SIZE, STREAM_BLOCK_SIZE)
     const remainingBlocks = decryptedStreamStartingFromBlockContainingPosition.slice(STREAM_BLOCK_SIZE)
 
@@ -227,8 +229,6 @@ function encryptSlice(cipher, nonce, key, buffer, position, length) {
     const combined = Buffer.concat([cipherSliceUpToBlockContainingPosition, cipherTail])
     return combined
 }
-
-
 
 module.exports = {
     hash,

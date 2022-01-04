@@ -5,6 +5,7 @@ const fs = require("fs/promises")
 const fsFns = require("../fsFns.js")
 const sodium = require("sodium-native")
 const KeyProvider = require("../key-provider")
+const crypto = require("../crypto")
 
 const tempDir = resolve("./tmp/")
 const testFile = "test.txt"
@@ -19,13 +20,8 @@ async function writeTestMessage(path, length) {
 
     const message = Buffer.alloc(length)
     sodium.randombytes_buf(message)
-
-    const header = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES)
-    const state = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_STATEBYTES)
-    sodium.crypto_secretstream_xchacha20poly1305_init_push(state, header, keyProvider.getKeyForPath(path))
-
-    // Write header
-    await file.write(header)
+    
+    const key = keyProvider.getKeyForPath(path)
 
     // Write chunks
     let written = 0
@@ -34,9 +30,17 @@ async function writeTestMessage(path, length) {
         const toBeWritten = Math.min(STREAM_CHUNK_SIZE, length - written)
 
         const plaintext = message.subarray(written, written + toBeWritten)
-        const ciphertext = Buffer.alloc(plaintext.byteLength + sodium.crypto_secretstream_xchacha20poly1305_ABYTES)
-        const tag = sodium.crypto_secretstream_xchacha20poly1305_TAG_MESSAGE
-        const mlen = sodium.crypto_secretstream_xchacha20poly1305_push(state, ciphertext, plaintext, null, tag)
+
+        // Write nonce
+        const nonce = crypto.makeNonce()
+        await file.write(nonce)
+
+        const ciphertext = Buffer.alloc(toBeWritten + sodium.crypto_secretbox_MACBYTES)
+
+        const res = sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, key)
+        if (res !== 0) {
+            // TODO: Handle error
+        }
 
         written += toBeWritten
 

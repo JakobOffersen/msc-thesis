@@ -9,11 +9,7 @@ const { FSError } = require("./util.js")
 const STREAM_CHUNK_SIZE = 4096
 
 // The maximum size of a chunk after it has been encrypted.
-const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretstream_xchacha20poly1305_ABYTES
-
-const crypto_secretstream_xchacha20poly1305_COUNTERBYTES = 4
-const crypto_secretstream_xchacha20poly1305_INONCEBYTES = 8
-const crypto_onetimeauth_poly1305_BYTES = 16
+const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
 
 class FileReader {
     /**
@@ -41,37 +37,6 @@ class FileReader {
         if (this.fileSize < sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES) {
             throw new Error("Invalid file")
         }
-
-        const header = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES)
-        await fsFns.read(this.fd, header, 0, header.byteLength, 0)
-
-        this.state = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_STATEBYTES)
-        sodium.crypto_secretstream_xchacha20poly1305_init_pull(this.state, header, this.key)
-
-        // See definition of state here:
-        // https://github.com/jedisct1/libsodium/blob/6d566070b48efd2fa099bbe9822914455150aba9/src/libsodium/include/sodium/crypto_secretstream_xchacha20poly1305.h#L56
-        // Note that the counter i and nonce n are concatenated and stored in the same field.
-        this._state = {
-            k: this.state.subarray(0, sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES),
-            i: this.state.subarray(
-                // 32, 36
-                sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES,
-                sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES + crypto_secretstream_xchacha20poly1305_COUNTERBYTES
-            ),
-            n: this.state.subarray(
-                // 36, 44
-                sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES + crypto_secretstream_xchacha20poly1305_COUNTERBYTES,
-                sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES +
-                    crypto_secretstream_xchacha20poly1305_COUNTERBYTES +
-                    crypto_secretstream_xchacha20poly1305_INONCEBYTES
-            )
-        }
-
-        // Store the first nonce
-        this.nonces.push(Buffer.from(this._state.n))
-
-        // Clear the key as its no longer needed (the derived subkey is stored in state)
-        delete this.key
     }
 
     #ciphertextChunkIndex(plaintextPosition) {
@@ -80,13 +45,13 @@ class FileReader {
 
     // Returns the starting position within the ciphertext of a given chunk
     #chunkPosition(index) {
-        return sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES + index * STREAM_CIPHER_CHUNK_SIZE
+        return index * STREAM_CIPHER_CHUNK_SIZE
     }
 
     #plaintextLength(ciphertextBytes) {
-        const blockSize = STREAM_CHUNK_SIZE + sodium.crypto_secretstream_xchacha20poly1305_ABYTES
+        const blockSize = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
         const blockCount = Math.ceil(ciphertextBytes / blockSize)
-        const tagSizes = blockCount * sodium.crypto_secretstream_xchacha20poly1305_ABYTES
+        const tagSizes = blockCount * (sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES)
 
         return ciphertextBytes - tagSizes
     }
@@ -105,88 +70,37 @@ class FileReader {
         return ciphertext
     }
 
-    // Aligns the internal state of the reader so that it is ready to read from the chunk at the given index.
-    async #prepareRead(chunkIndex) {
-        if (chunkIndex === this.currentChunk) return
-
-        // Check if we have the required nonce.
-        await this.#loadNonces(chunkIndex)
-
-        // Set the counter to the requested index
-        this.currentChunk = chunkIndex
-
-        // Choose the appropriate nonce
-        const nonce = this.nonces[chunkIndex]
-        nonce.copy(this._state.n)
-    }
-
-    // Ensures that we have all nonces starting from the first up to and including the requested index.
-    // For the nonces that we don't have, we will load the required information from the ciphertext
-    // and compute them.
-    async #loadNonces(requestedIndex) {
-        if (this.nonces.length > requestedIndex) return
-
-        const startingIndex = this.nonces.length
-        const mac = Buffer.alloc(crypto_onetimeauth_poly1305_BYTES)
-
-        for (let i = startingIndex; i <= requestedIndex; i++) {
-            // Load the MAC from the previous chunk.
-            // Since the chunk is not the last in the stream, we know for a fact it is full-size.
-            const chunkEnd = this.#chunkPosition(i - 1) + STREAM_CIPHER_CHUNK_SIZE
-            const macStart = chunkEnd - crypto_onetimeauth_poly1305_BYTES
-
-            await fsFns.read(this.fd, mac, 0, mac.byteLength, macStart)
-
-            const currentNonce = this.nonces[i - 1]
-            const nextNonce = Buffer.alloc(8)
-
-            // Compute the next nonce by XOR'ing the current nonce with the first 8 bytes of the MAC.
-            for (let n = 0; n < 8; n++) {
-                nextNonce[n] = currentNonce[n] ^ mac[n]
-            }
-
-            this.nonces.push(nextNonce)
-        }
-    }
-
     async read(buffer, length, position) {
         if (length === 0) return 0
-        if (!this.state) await this.init()
+        if (!this.state) await this.#init()
 
         // Determine which chunks in the ciphertext stream the read request covers.
         const startChunkIndex = this.#ciphertextChunkIndex(position)
         const endChunkIndex = this.#ciphertextChunkIndex(position + length)
 
-        // Align the reader
-        await this.#prepareRead(startChunkIndex)
-
         // Read ciphertext from disk
         const ciphertext = await this.#readChunks(startChunkIndex, endChunkIndex)
 
         // Decrypt chunks
-        const tag = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_TAGBYTES)
         const plaintextLength = this.#plaintextLength(ciphertext.byteLength)
         const plaintext = Buffer.alloc(plaintextLength)
 
         const chunks = Math.ceil(plaintextLength / STREAM_CHUNK_SIZE)
 
         for (let chunk = 0; chunk < chunks; chunk++) {
-            const chunkStart = chunk * (STREAM_CHUNK_SIZE + sodium.crypto_secretstream_xchacha20poly1305_ABYTES)
-            const chunkLength = Math.min(STREAM_CHUNK_SIZE + sodium.crypto_secretstream_xchacha20poly1305_ABYTES, ciphertext.byteLength - chunkStart)
+            const chunkStart = chunk * STREAM_CIPHER_CHUNK_SIZE
+            const chunkLength = Math.min(STREAM_CIPHER_CHUNK_SIZE, ciphertext.byteLength - chunkStart)
 
             const inBuffer = ciphertext.subarray(chunkStart, chunkStart + chunkLength)
+
+            const nonce = inBuffer.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
+            const encrypted = inBuffer.subarray(sodium.crypto_secretbox_NONCEBYTES)
 
             const outStart = chunk * STREAM_CHUNK_SIZE
             const outEnd = outStart + this.#plaintextLength(chunkLength)
             const outBuffer = plaintext.subarray(outStart, outEnd)
 
-            sodium.crypto_secretstream_xchacha20poly1305_pull(this.state, outBuffer, tag, inBuffer, null)
-
-            // Store nonce for later use
-            if (this.nonces.length == this.currentChunk) {
-                const nonce = Buffer.from(this._state.n)
-                this.nonces.push(nonce)
-            }
+            sodium.crypto_secretbox_open_easy(outBuffer, encrypted, nonce, this.key)
         }
 
         // Determine what we should return from the plaintext
@@ -220,18 +134,12 @@ class FileReader {
  * @param {number} fileSize
  * @returns size in bytes
  */
-function messageSize(fileSize) {
-    let size = fileSize
+function messageSize(ciphertextBytes) {
+    const blockSize = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
+    const blockCount = Math.ceil(ciphertextBytes / blockSize)
+    const tagSizes = blockCount * (sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES)
 
-    // Subtract header
-    size -= sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES
-
-    // Subtract block headers (17 bytes: MAC + tag)
-    const blockSize = STREAM_CHUNK_SIZE + sodium.crypto_secretstream_xchacha20poly1305_ABYTES
-    const blockCount = Math.ceil(size / blockSize)
-    size -= blockCount * sodium.crypto_secretstream_xchacha20poly1305_ABYTES
-
-    return size
+    return ciphertextBytes - tagSizes
 }
 
 class FuseHandlers {
