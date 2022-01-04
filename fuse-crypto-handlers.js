@@ -150,8 +150,10 @@ class FileReader {
     }
 
     async read(buffer, length, position) {
+        if (!this.state) await this.#init()
         if (length === 0) return 0
-        if (!this.state) await this.init()
+
+        // TODO: Add position check here + tests
 
         // Determine which chunks in the ciphertext stream the read request covers.
         const startChunkIndex = this.#ciphertextChunkIndex(position)
@@ -198,22 +200,139 @@ class FileReader {
 
         return length
     }
+
+    async write(buffer, length, position) {
+        if (!this.state) await this.#init()
+        if (length === 0) return 0
+
+        /**
+         * Determine if the operation is an append or not
+         * 1. Read existing data, if there is any (beginning from start of chunk to end of file)
+         * 2. Decrypt existing data
+         * 3. Insert new data into decrypted buffer
+         * 4. Encrypted everything and write to disk
+         */
+
+        // TODO: Add position check here + tests
+
+        const fileSize = (await fsFns.fstat(this.fd)).size
+        const startChunkIndex = this.#ciphertextChunkIndex(position)
+
+        if (startChunkIndex)
+
+        // TODO: Determine the ciphertext position from the plaintext position
+        // If ciphertext position == fileSize and the last chunk is complete, this write is an append operation.
+        const ciphertextPosition = this.#ciphertextPosition(position)
+        const lastChunkComplete =
+            (fileSize - sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES) %
+                (STREAM_CHUNK_SIZE + sodium.crypto_secretstream_xchacha20poly1305_ABYTES) ===
+            0
+
+        const isAppend = ciphertextPosition === fileSize && lastChunkComplete
+        let precedingData
+
+        if (!isAppend) {
+            // TODO: Load data from disk from start chunk to end of file
+            // TODO: Decrypt
+            const reader = new FileReader(this.fd, this.key)
+
+            const length = startChunkIndex
+            precedingData = await reader.read()
+
+            // TODO: IF re-encrypting, we should drop nonces for all re-encrypted chunks
+        }
+
+        // Determine which chunks in the ciphertext stream the read request covers.
+
+        // const endChunkIndex = this.#ciphertextChunkIndex(position + length)
+
+        // Align state
+        await this.#prepareRead(startChunkIndex)
+
+        // TODO: Create stream to be written
+        // insertPos = position - startChunkIndex * 4096
+        // concat([
+        //   precedingData[0, insertPos],
+        //   buffer,
+        //   precedingData[insertPos,]
+        // ])
+
+        // TODO: Problem: we can't necessarily perform writes using a write-only FD (only if we do appends of exactly 4096 bytes). In most cases the FD must support both read and writes.
+
+        // At this point the state should be aligned with the write point and there should be a buffer with data which will be written in chunks in a loop.
+        // const toBeWritten = Buffer: preceding data -> given buffer -> succeeding data
+    }
+
 }
 
-// function insertInto(source, target, position, length) {
-//     const headSlice = source.slice(0, position)
-//     const tailSlice = source.slice(position)
-//     const truncatedTarget = target.slice(0, length)
-//     return Buffer.concat([headSlice, truncatedTarget, tailSlice])
-// }
+class FileWriter {
+    /**
+     *
+     * @param {number} fd
+     * @param {Buffer} key
+     */
+    constructor(fd, key) {
+        this.fd = fd
+        this.key = key
+        this.nonces = []
+    }
 
-// function encryptBuffer(buffer, key) {
-//     const nonce = crypto.makeNonce()
-//     const ic = 0
-//     const cipher = crypto.streamXOR(buffer, nonce, ic, key)
-//     const nonceAndCipher = Buffer.concat([nonce, cipher])
-//     return nonceAndCipher
-// }
+    async #init() {
+        const fileSize = (await fsFns.fstat(this.fd)).size
+
+        const header = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES)
+        this.state = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_STATEBYTES)
+
+        if (fileSize === 0) {
+            // Create header and write it to disk
+            sodium.crypto_secretstream_xchacha20poly1305_init_push(this.state, header, this.key)
+            await fsFns.write(this.fd, header)
+        } else {
+            if (this.fileSize < sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES) {
+                throw new Error("Invalid file")
+            }
+
+            // Read existing header from disk
+            await fsFns.read(this.fd, header, 0, header.byteLength, 0)
+            sodium.crypto_secretstream_xchacha20poly1305_init_pull(this.state, header, this.key)
+        }
+
+        // See definition of state here:
+        // https://github.com/jedisct1/libsodium/blob/6d566070b48efd2fa099bbe9822914455150aba9/src/libsodium/include/sodium/crypto_secretstream_xchacha20poly1305.h#L56
+        // Note that the counter i and nonce n are concatenated and stored in the same field.
+        this._state = {
+            k: this.state.subarray(0, sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES),
+            i: this.state.subarray(
+                // 32, 36
+                sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES,
+                sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES + crypto_secretstream_xchacha20poly1305_COUNTERBYTES
+            ),
+            n: this.state.subarray(
+                // 36, 44
+                sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES + crypto_secretstream_xchacha20poly1305_COUNTERBYTES,
+                sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES +
+                    crypto_secretstream_xchacha20poly1305_COUNTERBYTES +
+                    crypto_secretstream_xchacha20poly1305_INONCEBYTES
+            )
+        }
+
+        // Store the first nonce
+        this.nonces.push(Buffer.from(this._state.n))
+
+        // Clear the key as its no longer needed (the derived subkey is stored in state)
+        delete this.key
+    }
+
+    get #lastChunkComplete() {}
+
+    #ciphertextPosition(plaintextPosition) {
+        const chunks = Math.floor(plaintextPosition / STREAM_CHUNK_SIZE)
+        const rem = plaintextPosition % STREAM_CHUNK_SIZE
+        return sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES + chunks * STREAM_CHUNK_SIZE + rem
+    }
+
+    
+}
 
 /**
  * Computes the size of a plaintext message based on the size of the ciphertext.
@@ -241,6 +360,8 @@ class FuseHandlers {
 
         // Maps file descriptors to FileReaders
         this.readers = new Map()
+
+        this.writers = new Map()
     }
 
     #resolvedPath(path) {

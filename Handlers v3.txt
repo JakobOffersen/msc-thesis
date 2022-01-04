@@ -1,0 +1,4 @@
+Handlers v3:
+
+- Write to a tmp dir first to prevent the dropbox client from syncing every time a write is made (but before the file is closed and the signature is computed)
+- Perform signature step after file handler is closed.
