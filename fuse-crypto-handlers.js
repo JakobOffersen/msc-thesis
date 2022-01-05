@@ -1,8 +1,8 @@
 const fs = require("fs/promises")
+const xattr = require("fs-xattr")
 const { join } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("./fsFns.js")
-const { FSError } = require("./util.js")
 
 // The maximum size of a message appended to the stream
 // Every chunk, except for the last, in the stream should of this size.
@@ -11,7 +11,7 @@ const STREAM_CHUNK_SIZE = 4096
 // The maximum size of a chunk after it has been encrypted.
 const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
 
-class FileReader {
+class FileHandle {
     /**
      *
      * @param {number} fd
@@ -20,23 +20,10 @@ class FileReader {
     constructor(fd, key) {
         this.fd = fd
         this.key = key
-        this.nonces = []
     }
 
-    get currentChunk() {
-        return this._state.i.readUInt32LE() - 1 // The counter starts at 1
-    }
-
-    set currentChunk(value) {
-        return this._state.i.writeUInt32LE(value + 1) // The counter starts at 1
-    }
-
-    async #init() {
-        this.fileSize = (await fsFns.fstat(this.fd)).size
-
-        if (this.fileSize < sodium.crypto_secretstream_xchacha20poly1305_HEADERBYTES) {
-            throw new Error("Invalid file")
-        }
+    async #getPlainFileSize() {
+        return this.#plaintextLength((await fsFns.fstat(this.fd)).size)
     }
 
     #ciphertextChunkIndex(plaintextPosition) {
@@ -59,9 +46,10 @@ class FileReader {
     async #readChunks(from, to) {
         // assert(from <= to)
 
+        const fileSize = (await fsFns.fstat(this.fd)).size
         const start = this.#chunkPosition(from)
         // The last chunk of the file may be less than full size.
-        const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE, this.fileSize)
+        const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE, fileSize)
         const length = end - start
         const ciphertext = Buffer.alloc(length)
 
@@ -72,7 +60,6 @@ class FileReader {
 
     async read(buffer, length, position) {
         if (length === 0) return 0
-        if (!this.state) await this.#init()
 
         // Determine which chunks in the ciphertext stream the read request covers.
         const startChunkIndex = this.#ciphertextChunkIndex(position)
@@ -100,7 +87,8 @@ class FileReader {
             const outEnd = outStart + this.#plaintextLength(chunkLength)
             const outBuffer = plaintext.subarray(outStart, outEnd)
 
-            sodium.crypto_secretbox_open_easy(outBuffer, encrypted, nonce, this.key)
+            const res = sodium.crypto_secretbox_open_easy(outBuffer, encrypted, nonce, this.key)
+            if (!res) throw new Error("Decryption failed")
         }
 
         // Determine what we should return from the plaintext
@@ -112,22 +100,60 @@ class FileReader {
 
         return length
     }
+
+    async write(buffer, length, position) {
+        if (length === 0) return 0
+
+        const fileSize = await this.#getPlainFileSize()
+
+        if (position > fileSize) throw Error(`Out of bounds write`)
+
+        // Figure out in which chunk the write starts
+        const startChunkIndex = this.#ciphertextChunkIndex(position)
+
+        // Read any existing content from chunk and any succeeding chunks.
+        // All of this is a no-op if the write is an append.
+        const startChunkPosition = this.#chunkPosition(startChunkIndex)
+        const startChunkPlainPosition = this.#plaintextLength(startChunkPosition)
+
+        const readLength = fileSize - startChunkPlainPosition
+        const existing = Buffer.alloc(readLength)
+        await this.read(existing, existing.byteLength, startChunkPlainPosition)
+
+        const head = existing.subarray(0, position - startChunkPlainPosition)
+        const tail = head.byteLength + buffer.byteLength > fileSize ? Buffer.alloc(0) : existing.subarray(head.byteLength + buffer.byteLength)
+
+        // Create a combined buffer of what needs to be encrypted and written.
+        const combined = Buffer.concat([head, buffer, tail])
+
+        // Write chunks
+        // The file descriptor is currently pointing at any
+        let written = 0 // Plaintext bytes written
+        let writePosition = startChunkPosition // Ciphertext position
+
+        while (written < combined.byteLength) {
+            const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
+            const plaintext = combined.subarray(written, written + toBeWritten)
+            const out = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES + toBeWritten + sodium.crypto_secretbox_MACBYTES)
+
+            // Generate nonce
+            const nonce = out.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
+            sodium.randombytes_buf(nonce)
+
+            // Encrypt chunk
+            const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
+            sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.key)
+
+            // Write nonce and ciphertext
+            await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
+
+            written += toBeWritten
+            writePosition += out.byteLength
+        }
+
+        return length
+    }
 }
-
-// function insertInto(source, target, position, length) {
-//     const headSlice = source.slice(0, position)
-//     const tailSlice = source.slice(position)
-//     const truncatedTarget = target.slice(0, length)
-//     return Buffer.concat([headSlice, truncatedTarget, tailSlice])
-// }
-
-// function encryptBuffer(buffer, key) {
-//     const nonce = crypto.makeNonce()
-//     const ic = 0
-//     const cipher = crypto.streamXOR(buffer, nonce, ic, key)
-//     const nonceAndCipher = Buffer.concat([nonce, cipher])
-//     return nonceAndCipher
-// }
 
 /**
  * Computes the size of a plaintext message based on the size of the ciphertext.
@@ -147,8 +173,8 @@ class FuseHandlers {
         this.baseDir = baseDir
         this.keyProvider = keyProvider
 
-        // Maps file descriptors to FileReaders
-        this.readers = new Map()
+        // Maps file descriptors to FileHandles
+        this.handles = new Map()
     }
 
     #resolvedPath(path) {
@@ -174,15 +200,10 @@ class FuseHandlers {
 
     async getattr(path) {
         const fullPath = this.#resolvedPath(path)
-
-        try {
-            const stat = await fs.stat(fullPath)
-            // Overwrite the size of the ciphertext with the size of the plaintext
-            stat.size = messageSize(stat.size)
-            return stat
-        } catch (error) {
-            throw new FSError(error.errno)
-        }
+        const stat = await fs.stat(fullPath)
+        // Overwrite the size of the ciphertext with the size of the plaintext
+        stat.size = messageSize(stat.size)
+        return stat
     }
 
     // Same as getattr but is called when someone stats a file descriptor
@@ -224,34 +245,40 @@ class FuseHandlers {
     //     return fs.chown(join(BASE_DIR, path), uid, gid)
     // }
 
-    // async chmod(path, mode) {
-    //     return fs.chmod(join(BASE_DIR, path), mode)
-    // }
+    async chmod(path, mode) {
+        const fullPath = this.#resolvedPath(path)
+        return fs.chmod(fullPath, mode)
+    }
 
     // async mknod(path, mode, deb) { throw FSError.operationNotSupported }
-    // async setxattr(path, name, value, position, flags) { throw FSError.operationNotSupported }
 
-    // async getxattr(path, name, position) {
-    //     return null
-    // }
+    async setxattr(path, name, value, position, flags) {
+        const fullPath = this.#resolvedPath(path)
+        await xattr.set(fullPath, name, value)
+    }
+
+    async getxattr(path, name, position) {
+        return Buffer.alloc(0)
+        const fullPath = this.#resolvedPath(path)
+        return xattr.get(fullPath, name)
+    }
 
     // async listxattr(path, name) { throw FSError.operationNotSupported }
     // async removexattr(path, name) { throw FSError.operationNotSupported }
 
     async open(path, flags) {
-        console.log("[Open]", path, flags)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
         const key = this.keyProvider.getKeyForPath(path)
 
-        this.readers.set(fd, new FileReader(fd, key))
+        this.handles.set(fd, new FileHandle(fd, key))
 
         return fd
     }
 
     // Called when a file descriptor is being released.Happens when a read/ write is done etc.
     async release(path, fd) {
-        this.readers.delete(fd)
+        this.handles.delete(fd)
     }
 
     // Same as release but for directories.
@@ -264,88 +291,30 @@ class FuseHandlers {
     //     const dir = await fs.opendir(path, flags)
     // }
 
-    // async read(path, fd, buffer, length, position) {
-    //     // const fullPath = join(FSP_DIR, path)
-    //     // const stat = await fs.stat(fullPath)
-
-    //     // TODO: This should instead be handled by the decryption failing
-    //     // if (position >= stat.size - crypto.NONCE_LENGTH) throw new FSError(-1) // read-error occured. TODO: use proper error code
-
-    //     const key = this.keyProvider.getKeyForPath(path)
-    //     const nonce = await readNonce(fd)
-    //     const cipher = await readCipher(fd, position, length)
-    //     const plain = crypto.decryptSlice2(cipher, nonce, key, position, length)
-
-    //     // TODO: Avoid copy
-    //     plain.copy(buffer) // copy 'plain' into buffer
-
-    //     return plain.byteLength
-    // }
-
     async read(path, fd, buffer, length, position) {
-        // console.log("[Read]", fd)
+        const handle = this.handles.get(fd)
+        if (!handle) throw new Error("Read from closed file descriptor")
 
-        const reader = this.readers.get(fd)
-        if (!reader) {
-            throw new Error("Read from closed file descriptor")
-        }
-
-        const bytesRead = await reader.read(buffer, length, position)
-
-        return bytesRead
+        return handle.read(buffer, length, position)
     }
-
-    // Encrypts before writing to disk. Each write-call re-encrypts the file at 'path' using a fresh nonce.
-    // Assumes the file at 'path' already exists
-    // async write(path, fd, buffer, length, position) {
-    //     const fullPath = join(FSP_DIR, path)
-    //     const key = keyProvider.getKeyForPath(path)
-    //     // const stat = await this.getattr(path)
-    //     const stat = await fs.stat(path) // TODO: Use size-corrected stat instead
-
-    //     if (position > stat.size) {
-    //         // Attempt to write outside of file
-    //         throw new FSError(-1) // TODO: Proper error code
-    //     }
-
-    //     if (stat.size === 0) {
-    //         // nothing to decrypt before encrypting the write
-    //         const cipher = encryptBuffer(buffer, key)
-    //         const res = await fsFns.write(fd, cipher)
-    //         return length
-    //     } else {
-    //         // We need to decrypt the existing content of file at 'path',
-    //         // add the new write and re-encrypt it all under a new nonce
-
-    //         // Read all of the existing content into 'readBuffer'
-    //         const file = await fs.open(fullPath, "r")
-    //         const readBuffer = Buffer.alloc(stat.size - crypto.NONCE_LENGTH)
-    //         const readLength = await this.read(path, file.fd, readBuffer, readBuffer.length, 0)
-
-    //         await file.close()
-
-    //         if (readLength !== readBuffer.length) throw new FSError(-1) // read-error occured. TODO: use proper error code
-    //         if (position > readBuffer.byteLength) throw new FSError(-1) // We try to write 'buffer' into a 'position' in 'readBuffer' that does not exist. TODO: Unsure how to handle this case yet.
-
-    //         // insert 'buffer' into the 'readBuffer' at position
-    //         const updatedReadBuffer = insertInto(readBuffer, buffer, position, length)
-    //         const cipher = encryptBuffer(updatedReadBuffer, key)
-    //         // await fs.writeFile(fullPath, cipher)
-    //         await fsFns.write(fd, cipher, 0, cipher.byteLength, 0)
-
-    //         return length
-    //     }
-    // }
 
     async write(path, fd, buffer, length, position) {
-        const res = await fsFns.write(fd, buffer, position, length)
-        return res.bytesWritten
+        const handle = this.handles.get(fd)
+        if (!handle) throw new Error("Write from closed file descriptor")
+
+        return handle.write(buffer, length, position)
     }
 
+    // Create and open file
     async create(path, mode) {
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
-        const file = await fs.open(this.#resolvedPath(path), "wx+", mode)
-        await file.close()
+        const fullPath = this.#resolvedPath(path)
+        const fd = await fsFns.open(fullPath, "wx+", mode)
+        const key = this.keyProvider.getKeyForPath(path)
+
+        this.handles.set(fd, new FileHandle(fd, key))
+
+        return fd
     }
 
     async utimens(path, atime, mtime) {

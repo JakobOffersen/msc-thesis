@@ -1,13 +1,5 @@
 const { isAsyncFunction } = require("util/types")
 
-class FSError extends Error {
-    static operationNotSupported = new FSError(-100)
-
-    constructor(code) {
-        super()
-        this.code = code
-    }
-}
 
 function callbackify(fn) {
     const SUCCESS = 0
@@ -23,14 +15,9 @@ function callbackify(fn) {
                 .then(function (val) {
                     cb.call(ctx, SUCCESS, val)
                 })
-                .catch(function (err) {
-                    let code = -999
-                    if (err instanceof FSError) {
-                        code = err.code
-                    } else {
-                        console.log(err)
-                    }
-
+                .catch(function (error) {
+                    let code = error.errno || error.code || -999
+                    console.error(error)
                     cb.call(ctx, code)
                 })
             return
@@ -92,7 +79,6 @@ const exitHandler = async signal => {
 SHUTDOWN_SIGNALS.forEach(signal => process.once(signal, exitHandler))
 
 module.exports = {
-    FSError,
     callbackify,
     callbackifyHandlers,
     callbackifyHandlersObj,

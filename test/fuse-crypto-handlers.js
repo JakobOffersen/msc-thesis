@@ -20,7 +20,7 @@ async function writeTestMessage(path, length) {
 
     const message = Buffer.alloc(length)
     sodium.randombytes_buf(message)
-    
+
     const key = keyProvider.getKeyForPath(path)
 
     // Write chunks
@@ -174,6 +174,69 @@ describe("fuse handlers", function () {
 
             await fsFns.close(fd)
             handlers.release(testFile, fd)
+        })
+    })
+
+    /** Write handler tests **/
+    const FILE_WRITE_FLAGS = 1538 // fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_RDWR
+    const cases3 = [1, 2, 4, 8, 64, 128, 512, 1000, 1024, 1234, 2048, 4096, 8192, 10000, 12000, 16384, 65536, 655360]
+
+    cases3.forEach(writeSize => {
+        it(`writes a ${writeSize} byte file`, async function () {
+            const message = Buffer.alloc(writeSize)
+            sodium.randombytes_buf(message)
+
+            const fd = await handlers.open(testFile, FILE_WRITE_FLAGS)
+            const bytesWritten = await handlers.write(testFile, fd, message, message.byteLength, 0)
+
+            await fsFns.close(fd)
+            handlers.release(testFile, fd)
+
+            const { readBuffer, readLength } = await openAndRead(testFile, message.byteLength, 0)
+
+            assert.strictEqual(writeSize, bytesWritten)
+            assert.strictEqual(writeSize, readLength)
+            assert.strictEqual(Buffer.compare(message, readBuffer), 0)
+        })
+    })
+
+    const cases4 = [
+        [4096, 200, 0],
+        [4096, 200, 2048],
+        [4096, 200, 4096],
+        [8192, 100, 0],
+        [8192, 100, 4096],
+        [8192, 100, 6000],
+        [8192, 8192, 7000],
+        [8192, 8192, 8192],
+        [65536, 1, 0],
+        [65536, 1, 1],
+        [65536, 1, 20000],
+        [65536, 1, 65536]
+    ]
+    cases4.forEach(([size, writeSize, position]) => {
+        it(`writes ${size} byte file and inserts ${writeSize} byte(s) at position ${position}`, async function () {
+            const message = Buffer.alloc(size)
+            sodium.randombytes_buf(message)
+
+            const injection = Buffer.alloc(writeSize)
+            sodium.randombytes_buf(injection)
+
+            const head = message.subarray(0, position)
+            const remaining = position + injection.byteLength > message.byteLength ? Buffer.alloc(0) : message.subarray(position + injection.byteLength)
+            const newMessage = Buffer.concat([head, injection, remaining])
+
+            const fd = await handlers.open(testFile, FILE_WRITE_FLAGS)
+            await handlers.write(testFile, fd, message, message.byteLength, 0)
+            await handlers.write(testFile, fd, injection, injection.byteLength, position)
+
+            await fsFns.close(fd)
+            handlers.release(testFile, fd)
+
+            const { readBuffer, readLength } = await openAndRead(testFile, newMessage.byteLength, 0)
+
+            assert.strictEqual(newMessage.byteLength, readLength)
+            assert.strictEqual(Buffer.compare(newMessage, readBuffer), 0)
         })
     })
 
