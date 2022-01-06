@@ -17,7 +17,7 @@ function callbackify(fn) {
                 })
                 .catch(function (error) {
                     let code = error.errno || error.code || -999
-                    console.error(error)
+                    // console.error(error)
                     cb.call(ctx, code)
                 })
             return

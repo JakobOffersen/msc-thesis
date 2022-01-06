@@ -13,7 +13,7 @@ const cbHandlers = callbackifyHandlersObj(handlers)
 
 const opts = {
     force: true,
-    debug: true,
+    debug: false,
     mkdir: true
 }
 
