@@ -3,7 +3,7 @@ const fs = require("fs/promises")
 const { join } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("./fsFns.js")
-const { statvfs } = require("@wwa/statvfs")
+// const { statvfs } = require("@wwa/statvfs")
 
 // The maximum size of a message appended to the stream
 // Every chunk, except for the last, in the stream should of this size.
@@ -190,9 +190,24 @@ class FuseHandlers {
     }
 
     async statfs(path) {
-        // The fs module in Node doesn't support the statfs operation.
-        const res = await statvfs(path)
-        return res
+        // TODO: The fs module in Node doesn't support the statfs operation.
+        // const res = await statvfs(path)
+        // console.log("Statfs: ", path)
+        // console.log(res)
+        // return res
+        return {
+            bsize: 4096,
+            frsize: 4096,
+            blocks: 2621440,
+            bfree: 2525080,
+            bavail: 2525080,
+            files: 292304,
+            ffree: 289126,
+            favail: 289126,
+            fsid: 140509193,
+            flag: 4,
+            namemax: 255
+        }
     }
 
     async getattr(path) {
