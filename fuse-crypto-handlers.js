@@ -190,24 +190,9 @@ class FuseHandlers {
     }
 
     async statfs(path) {
-        // TODO: The fs module in Node doesn't support the statfs operation.
+        // The fs module in Node doesn't support the statfs operation.
         const res = await statvfs(path)
-        console.log("Statfs: ", path)
-        console.log(res)
         return res
-        return {
-            bsize: 4096,
-            frsize: 4096,
-            blocks: 2621440,
-            bfree: 2525080,
-            bavail: 2525080,
-            files: 292304,
-            ffree: 289126,
-            favail: 289126,
-            fsid: 140509193,
-            flag: 4,
-            namemax: 255
-        }
     }
 
     async getattr(path) {
