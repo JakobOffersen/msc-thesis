@@ -3,12 +3,14 @@ const Fuse = require("fuse-native")
 const { promisify } = require("util")
 const { beforeShutdown, callbackifyHandlersObj } = require("./util")
 const { FuseHandlers } = require("./fuse-crypto-handlers")
-const KeyProvider = require("./key-provider")
+const KeyRing = require('./key-management/keyring')
+const { LOCAL_KEYRING_PATH } = require('./key-management/config')
 
-const keyProvider = new KeyProvider()
+
 const BASE_DIR = resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")
-const handlers = new FuseHandlers(BASE_DIR, keyProvider)
+const keyRing = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR)
+const handlers = new FuseHandlers(BASE_DIR, keyRing)
 const cbHandlers = callbackifyHandlersObj(handlers)
 
 const opts = {

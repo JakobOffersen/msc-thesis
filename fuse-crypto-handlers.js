@@ -1,9 +1,8 @@
 const fs = require("fs/promises")
-// const xattr = require("fs-xattr")
 const { join } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("./fsFns.js")
-// const { statvfs } = require("@wwa/statvfs")
+const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require("./key-management/config.js")
 
 // The maximum size of a message appended to the stream
 // Every chunk, except for the last, in the stream should of this size.
@@ -14,13 +13,15 @@ const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MAC
 
 class FileHandle {
     /**
-     *
+     * TODO: Fix params documentation
      * @param {number} fd
      * @param {Buffer} key
      */
-    constructor(fd, key) {
+    constructor(fd, capabilities) {
         this.fd = fd
-        this.key = key
+        this.readCapability = capabilities.find(cap => cap.type === TYPE_READ) //TODO: refactor to not depend on TYPE_READ
+        this.writeCapability = capabilities.find(cap => cap.type === TYPE_WRITE)
+        this.verifyCapability = capabilities.find(cap => cap.type === TYPE_VERIFY)
     }
 
     async #getPlainFileSize() {
@@ -60,7 +61,7 @@ class FileHandle {
     }
 
     async read(buffer, length, position) {
-        if (length === 0) return 0
+        if (length === 0 || !this.readCapability) return 0
 
         // Determine which chunks in the ciphertext stream the read request covers.
         const startChunkIndex = this.#ciphertextChunkIndex(position)
@@ -88,7 +89,7 @@ class FileHandle {
             const outEnd = outStart + this.#plaintextLength(chunkLength)
             const outBuffer = plaintext.subarray(outStart, outEnd)
 
-            const res = sodium.crypto_secretbox_open_easy(outBuffer, encrypted, nonce, this.key)
+            const res = sodium.crypto_secretbox_open_easy(outBuffer, encrypted, nonce, this.readCapability.key)
             if (!res) throw new Error("Decryption failed")
         }
 
@@ -103,7 +104,7 @@ class FileHandle {
     }
 
     async write(buffer, length, position) {
-        if (length === 0) return 0
+        if (length === 0 || !this.readCapability || !this.writeCapability) return 0
 
         const fileSize = await this.#getPlainFileSize()
 
@@ -143,10 +144,15 @@ class FileHandle {
 
             // Encrypt chunk
             const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
-            sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.key)
+            sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
 
             // Write nonce and ciphertext
-            await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
+            try {
+                await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
+            } catch (error) {
+                console.log("fsFns write error")
+                console.log(error)
+            }
 
             written += toBeWritten
             writePosition += out.byteLength
@@ -170,9 +176,9 @@ function messageSize(ciphertextBytes) {
 }
 
 class FuseHandlers {
-    constructor(baseDir, keyProvider) {
+    constructor(baseDir, keyRing) {
         this.baseDir = baseDir
-        this.keyProvider = keyProvider
+        this.keyRing = keyRing
 
         // Maps file descriptors to FileHandles
         this.handles = new Map()
@@ -288,9 +294,9 @@ class FuseHandlers {
     async open(path, flags) {
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
-        const key = this.keyProvider.getKeyForPath(path)
+        const capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path)
 
-        this.handles.set(fd, new FileHandle(fd, key))
+        this.handles.set(fd, new FileHandle(fd, capabilities))
 
         return fd
     }
@@ -328,9 +334,15 @@ class FuseHandlers {
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, "wx+", mode)
-        const key = this.keyProvider.getKeyForPath(path)
 
-        this.handles.set(fd, new FileHandle(fd, key))
+        let capabilities
+        if (path.startsWith("/._")) {
+            capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path) // re-use capabilities for the resource-fork version of a file
+        } else {
+            capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
+        }
+
+        this.handles.set(fd, new FileHandle(fd, capabilities))
 
         return fd
     }
