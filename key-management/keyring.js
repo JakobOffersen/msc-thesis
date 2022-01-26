@@ -1,8 +1,10 @@
 const fs = require("fs/promises")
-const { relative } = require("path")
+const { relative, resolve } = require("path")
 const { DateTime } = require("luxon")
 const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require("./config")
 const { clone, cloneAll, generateCapabilitiesForPath } = require("./capability-utils")
+
+const ignore = ["/.DS_Store"]
 
 class KeyRing {
     constructor(keyRingPath, baseDir) {
@@ -11,6 +13,8 @@ class KeyRing {
     }
 
     async createNewCapabilitiesForRelativePath(relativePath) {
+        if (ignore.includes(relativePath)) return []
+
         let capabilities = generateCapabilitiesForPath(relativePath)
         for (const cap of capabilities) {
             await this.addCapability(cap)
@@ -68,7 +72,7 @@ class KeyRing {
 
     async getCapabilitiesWithRelativePath(relativePath, keytype = "buffer") {
         const capabilities = await this._read()
-        relativePath = relativePath.replace("/._", "/") // TODO: Add descriptive comment to the method for why we do this
+        relativePath = resolve(relativePath.replace("/._", "/")) // TODO: Add descriptive comment to the method for why we do this
         const filtered = capabilities.filter(capability => capability.path === relativePath)
         return cloneAll(filtered, keytype)
     }

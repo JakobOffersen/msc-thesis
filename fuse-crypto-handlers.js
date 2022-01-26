@@ -1,5 +1,5 @@
 const fs = require("fs/promises")
-const { join } = require("path")
+const { join, resolve, basename } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("./fsFns.js")
 const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require("./key-management/config.js")
@@ -336,7 +336,7 @@ class FuseHandlers {
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
         let capabilities
-        if (path.startsWith("/._")) {
+        if (basename(path).startsWith("._")) {
             capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path) // re-use capabilities for the resource-fork version of a file
         } else {
             capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
