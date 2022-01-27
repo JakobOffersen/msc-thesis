@@ -2,10 +2,9 @@ const { resolve } = require("path")
 const Fuse = require("fuse-native")
 const { promisify } = require("util")
 const { beforeShutdown, callbackifyHandlersObj } = require("./util")
-const { FuseHandlers } = require("./fuse-crypto-handlers")
-const KeyRing = require('./key-management/keyring')
-const { LOCAL_KEYRING_PATH } = require('./key-management/config')
-
+const { FuseHandlers } = require("./fuse/fuse-crypto-handlers")
+const KeyRing = require("./key-management/keyring")
+const { LOCAL_KEYRING_PATH } = require("./key-management/config")
 
 const BASE_DIR = resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")
