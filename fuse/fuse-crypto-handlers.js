@@ -145,19 +145,6 @@ class FuseHandlers {
 
     // Called when a file descriptor is being released.Happens when a read/ write is done etc.
     async release(path, fd) {
-        if (!this.handles.has(fd)) return
-
-        // const handle = this.handles.get(fd)
-        // if (handle.wasWrittenTo) {
-        //     console.log(`release and sign ${path}`)
-        //     handle.wasWrittenTo = false
-        //     const fullPath = this.#resolvedPath(path)
-
-        //     const signer = new FileSigner(fullPath, handle.writeCapability.key)
-        //     await signer.sign()
-        //     console.log(`release and sign ${complete}`)
-        // }
-
         this.handles.delete(fd)
     }
 
