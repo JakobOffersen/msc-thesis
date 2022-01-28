@@ -15,9 +15,10 @@ class FileHandle {
      * @param {number} fd
      * @param {Buffer} key
      */
-    constructor(fd, capabilities) {
+    constructor({ fd, path, capabilities }) {
         this.fd = fd
-        this.wasWrittenTo = false // flag to determine if the file needs a signature
+        this.path = path
+        this.needsNewSignature = false // flag to determine if the file needs a signature
         this.readCapability = capabilities.find(cap => cap.type === TYPE_READ) //TODO: refactor to not depend on TYPE_READ
         this.writeCapability = capabilities.find(cap => cap.type === TYPE_WRITE)
         this.verifyCapability = capabilities.find(cap => cap.type === TYPE_VERIFY)
@@ -105,7 +106,7 @@ class FileHandle {
     async write(buffer, length, position) {
         if (length === 0 || !this.readCapability || !this.writeCapability) return 0
 
-        this.wasWrittenTo = true // marks that the file needs a new signature when the file is released
+        this.needsNewSignature = true // marks that the file needs a new signature when the file is released
 
         const fileSize = await this.#getPlainFileSize()
 

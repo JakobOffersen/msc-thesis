@@ -36,7 +36,6 @@ class SignatureHandler {
     }
 
     async detachSignature() {
-        TODO: lav en write-stream der stopper når signaturen nås.
     }
 
     async appendSignature() {
