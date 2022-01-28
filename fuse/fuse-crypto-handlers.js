@@ -3,9 +3,7 @@ const { join, basename } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const { FileHandle, STREAM_CHUNK_SIZE } = require("./file-handle")
-
-const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
-
+const { hasSignature, appendSignature, SIGNATURE_SIZE} = require("./file-signer")
 /**
  * Computes the size of a plaintext message based on the size of the ciphertext.
  * @param {number} fileSize
@@ -90,9 +88,11 @@ class FuseHandlers {
 
         if (stat.isDirectory()) return stat // a directory is never signed
 
-        const hasSignature = stat.size > 0
+        if (await hasSignature(fullPath)) {
+            stat.size = stat.size - SIGNATURE_SIZE - 10 //TODO: refactor '10' into SIGNATURE_MARK
+        }
 
-        if (!basename(path).startsWith("._")) console.log(`getattr ${path}, signature: ${hasSignature}, size: ${stat.size}`)
+        if (!basename(path).startsWith("._")) console.log(`getattr ${path}, size: ${stat.size}`)
         return stat
     }
 
@@ -178,6 +178,13 @@ class FuseHandlers {
     // Called when a file descriptor is being released.Happens when a read/ write is done etc.
     async release(path, fd) {
         if (!basename(path).startsWith("._")) console.log(`release ${path}`)
+
+        const handle = this.handles.get(fd)
+        if (!!handle && handle.needsNewSignature && !basename(path).startsWith("._")) {
+            await appendSignature(handle.path, handle.writeCapability.key)
+            handle.needsNewSignature = false
+        }
+
         this.handles.delete(fd)
     }
 

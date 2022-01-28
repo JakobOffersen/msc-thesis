@@ -1,56 +1,65 @@
-const fs = require('fs/promises')
-const { signDetached } = require('./../crypto')
-const { createHash } = require('crypto')
-const { createWriteStream, createReadStream } = require('fs')
+const fs = require("fs/promises")
+const { signDetached, hash } = require("./../crypto")
+const { createHash } = require("crypto")
+const { createWriteStream, createReadStream } = require("fs")
+const sodium = require("sodium-native")
+const fsFns = require("./../fsFns")
 
-class FileSigner {
-    constructor(path, key) {
-        this.path = path
-        this.key = key
-    }
+const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
+const SIGNATURE_MARK = Buffer.from("signature:")
 
-    async sign() {
-        try {
-            //TODO: Clean up
-            const content = await fs.readFile(this.path)
-            const hash = await this.#hash()
-            console.log(`sign before ${this.path}, content length: ${content.length}`)
-            const signature = signDetached(Buffer.from(hash, "hex"), this.key)
-            await this.#append(signature)
-            const content2 = await fs.readFile(this.path)
-            console.log(`sign after  ${this.path}, content length: ${content2.length}`)
-        } catch (error) {
-            console.log(`sign error ${this.path}: ${error}`)
-        }
-    }
+async function hasSignature(path) {
+    const fd = await fsFns.open(path, "r")
+    const fileSize = (await fsFns.fstat(fd)).size
 
-    async #append(content) {
-        return new Promise((resolve, reject) => {
-            const stream = createWriteStream(this.path, { flags: "a" })
-            stream.on("error", reject)
-            stream.on("close", resolve)
-            stream.on("ready", () => {
-                stream.write(content, error => {
-                    if (error) return reject(error)
-                    stream.close(error => {
-                        // emits 'close'
-                        if (error) reject(error)
-                    })
+    const signatureMarkSize = SIGNATURE_MARK.length
+    const position = fileSize - signatureMarkSize - SIGNATURE_SIZE
+    if (position < 0) return false // the file is smaller than the marker + signature => the signature cannot be there
+
+    // read the marker from the file
+    const marker = Buffer.alloc(signatureMarkSize)
+    await fsFns.read(fd, marker, 0, signatureMarkSize, position)
+
+    return Buffer.compare(SIGNATURE_MARK, marker) === 0 // .compare returns 0 iff buffers are equal
+}
+
+async function appendSignature(path, key) {
+    const hash = await hashFile(path)
+    const signature = signDetached(Buffer.from(hash, "hex"), key)
+    const combined = Buffer.concat([SIGNATURE_MARK, signature])
+    await append(path, combined)
+}
+
+async function append(path, content) {
+    return new Promise((resolve, reject) => {
+        const stream = createWriteStream(path, { flags: "a" })
+        stream.on("error", reject)
+        stream.on("close", resolve)
+        stream.on("ready", () => {
+            stream.write(content, error => {
+                if (error) return reject(error)
+                stream.close(error => {
+                    // emits 'close'
+                    if (error) reject(error)
                 })
             })
         })
-    }
-
-    async #hash() {
-        return new Promise((resolve, reject) => {
-            const stream = createReadStream(this.path)
-            const hash = createHash("sha256")
-            stream.on("data", data => hash.update(data))
-            stream.on("end", () => stream.destroy()) // emits 'close'
-            stream.on("error", err => reject(err))
-            stream.on("close", () => resolve(hash.digest("hex")))
-        })
-    }
+    })
 }
 
-module.exports = FileSigner
+async function hashFile(path) {
+    return new Promise((resolve, reject) => {
+        const stream = createReadStream(path)
+        const hash = createHash("sha256")
+        stream.on("data", data => hash.update(data))
+        stream.on("end", () => stream.destroy()) // emits 'close'
+        stream.on("error", err => reject(err))
+        stream.on("close", () => resolve(hash.digest("hex")))
+    })
+}
+
+module.exports = {
+    appendSignature,
+    hasSignature,
+    SIGNATURE_SIZE
+}
