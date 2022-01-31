@@ -1,6 +1,7 @@
 const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require("./../key-management/config")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
+const { hasSignature, TOTAL_SIGNATURE_SIZE } = require("./file-signer")
 
 // The maximum size of a message appended to the stream
 // Every chunk, except for the last, in the stream should of this size.
@@ -48,7 +49,10 @@ class FileHandle {
     async #readChunks(from, to) {
         // assert(from <= to)
 
-        const fileSize = (await fsFns.fstat(this.fd)).size
+        let fileSize = (await fsFns.fstat(this.fd)).size
+
+        if (await hasSignature(this.path)) fileSize = fileSize - TOTAL_SIGNATURE_SIZE
+
         const start = this.#chunkPosition(from)
         // The last chunk of the file may be less than full size.
         const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE, fileSize)
@@ -149,12 +153,7 @@ class FileHandle {
             sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
 
             // Write nonce and ciphertext
-            try {
-                await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
-            } catch (error) {
-                console.log("fsFns write error")
-                console.log(error)
-            }
+            await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
 
             written += toBeWritten
             writePosition += out.byteLength

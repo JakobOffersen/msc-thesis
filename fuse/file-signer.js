@@ -1,5 +1,4 @@
-const fs = require("fs/promises")
-const { signDetached, hash } = require("./../crypto")
+const { signDetached } = require("./../crypto")
 const { createHash } = require("crypto")
 const { createWriteStream, createReadStream } = require("fs")
 const sodium = require("sodium-native")
@@ -7,6 +6,7 @@ const fsFns = require("./../fsFns")
 
 const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
 const SIGNATURE_MARK = Buffer.from("signature:")
+const TOTAL_SIGNATURE_SIZE = SIGNATURE_SIZE + SIGNATURE_MARK.length
 
 async function hasSignature(path) {
     const fd = await fsFns.open(path, "r")
@@ -61,5 +61,5 @@ async function hashFile(path) {
 module.exports = {
     appendSignature,
     hasSignature,
-    SIGNATURE_SIZE
+    TOTAL_SIGNATURE_SIZE
 }
