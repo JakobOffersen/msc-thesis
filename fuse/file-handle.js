@@ -4,7 +4,7 @@ const fsFns = require("../fsFns.js")
 const { hasSignature, TOTAL_SIGNATURE_SIZE } = require("./file-signer")
 
 // The maximum size of a message appended to the stream
-// Every chunk, except for the last, in the stream should of this size.
+// Every chunk, except for the last, in the stream is of this size.
 const STREAM_CHUNK_SIZE = 4096
 
 // The maximum size of a chunk after it has been encrypted.
@@ -19,10 +19,14 @@ class FileHandle {
     constructor({ fd, path, capabilities }) {
         this.fd = fd
         this.path = path
-        this.needsNewSignature = false // flag to determine if the file needs a signature
+
+        this.needsNewSignature = false // TODO: Remove when the invariant works as expected
+
         this.readCapability = capabilities.find(cap => cap.type === TYPE_READ) //TODO: refactor to not depend on TYPE_READ
         this.writeCapability = capabilities.find(cap => cap.type === TYPE_WRITE)
         this.verifyCapability = capabilities.find(cap => cap.type === TYPE_VERIFY)
+
+        this.macs = [] // store all macs as they are written
     }
 
     async #getPlainFileSize() {
@@ -62,6 +66,28 @@ class FileHandle {
         await fsFns.read(this.fd, ciphertext, 0, length, start)
 
         return ciphertext
+    }
+
+    // Documentation crypto_secretbox_easy: https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox
+    // According to docs, the MAC is *prepended* to the message.
+    // In #write, we *prepend* the nonce to the entire MAC+cipher.
+    // Thus each chunk follows this pattern:
+    // | NONCE (24B) | MAC (16B) | CIPHER (variable length) |
+    // This function returns the MAC.
+    // NOTE: The MAC must *NOT* be modified. It is intented to be read-only
+    #readMACInChunk(chunk) {
+        const offset = sodium.crypto_secretbox_NONCEBYTES
+        return chunk.subarray(offset, offset + sodium.crypto_secretbox_MACBYTES)
+    }
+
+    async #readAllMACsOfFile() {
+        //TODO: Convert to a readstream to handle large files
+        const fileSize = (await fsFns.fstat(this.fd)).size
+
+        if (fileSize === 0) return []
+
+
+
     }
 
     async read(buffer, length, position) {
