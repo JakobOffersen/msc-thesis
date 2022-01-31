@@ -3,6 +3,8 @@ const { createHash } = require("crypto")
 const { createWriteStream, createReadStream } = require("fs")
 const sodium = require("sodium-native")
 const fsFns = require("./../fsFns")
+const { truncate } = require("fs/promises")
+const { assert } = require("console")
 
 const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
 const SIGNATURE_MARK = Buffer.from("signature:")
@@ -23,11 +25,21 @@ async function hasSignature(path) {
     return Buffer.compare(SIGNATURE_MARK, marker) === 0 // .compare returns 0 iff buffers are equal
 }
 
-async function appendSignature(path, key) {
-    const hash = await hashFile(path)
-    const signature = signDetached(Buffer.from(hash, "hex"), key)
+async function appendSignature(filehandle) {
+    console.log(`appendSignature start... ${filehandle.path}`)
+    const hash = await hashFile(filehandle)
+    const signature = signDetached(Buffer.from(hash, "hex"), filehandle.writeCapability.key)
     const combined = Buffer.concat([SIGNATURE_MARK, signature])
-    await append(path, combined)
+    await append(filehandle.path, combined)
+    console.log(`appendSignature complete ${filehandle.path}`)
+}
+
+async function removeSignature(filehandle) {
+    const fileSize = (await fsFns.fstat(filehandle.fd)).size
+    await truncate(filehandle.path, fileSize - TOTAL_SIGNATURE_SIZE)
+
+    const sizeAfter = (await fsFns.fstat(filehandle.fd)).size
+    assert(fileSize - sizeAfter === TOTAL_SIGNATURE_SIZE, `removeSignature: signature not removed correctly`)
 }
 
 async function append(path, content) {
@@ -47,9 +59,12 @@ async function append(path, content) {
     })
 }
 
-async function hashFile(path) {
+async function hashFile(filehandle) {
+    const fileSize = (await fsFns.fstat(filehandle.fd)).size
+    if (fileSize.length === 0) return ""
+
     return new Promise((resolve, reject) => {
-        const stream = createReadStream(path)
+        const stream = createReadStream(filehandle.path)
         const hash = createHash("sha256")
         stream.on("data", data => hash.update(data))
         stream.on("end", () => stream.destroy()) // emits 'close'
@@ -60,6 +75,7 @@ async function hashFile(path) {
 
 module.exports = {
     appendSignature,
+    removeSignature,
     hasSignature,
     TOTAL_SIGNATURE_SIZE
 }

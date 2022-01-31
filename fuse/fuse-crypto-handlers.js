@@ -2,21 +2,34 @@ const fs = require("fs/promises")
 const { join, basename } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
-const { FileHandle, STREAM_CHUNK_SIZE } = require("./file-handle")
-const { hasSignature, appendSignature, TOTAL_SIGNATURE_SIZE } = require("./file-signer")
+const Fuse = require("fuse-native")
+const { FileHandle, STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE } = require("./file-handle")
+const { hasSignature, appendSignature, TOTAL_SIGNATURE_SIZE, removeSignature } = require("./file-signer")
 const HandleHolder = require("./handle-holder")
 
+class FSError extends Error {
+    constructor(code) {
+        super()
+        this.code = code
+    }
+}
+function ignored(path) {
+    const ignore = basename(path).startsWith(".")
+    //if (ignore) console.log(`ignored ${path}`)
+    return ignore
+}
 /**
  * Computes the size of a plaintext message based on the size of the ciphertext.
  * @param {number} fileSize
  * @returns size in bytes
  */
 function messageSize(ciphertextBytes) {
-    const blockSize = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
-    const blockCount = Math.ceil(ciphertextBytes / blockSize)
+    ciphertextBytes = ciphertextBytes - TOTAL_SIGNATURE_SIZE
+
+    const blockCount = Math.ceil(ciphertextBytes / STREAM_CIPHER_CHUNK_SIZE)
     const tagSizes = blockCount * (sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES)
 
-    return ciphertextBytes - tagSizes
+    return Math.max(ciphertextBytes - tagSizes, 0) // some resource forks are not signed, since they are not created through the mount-point. All files should be of least size 0.
 }
 
 class FuseHandlers {
@@ -61,15 +74,16 @@ class FuseHandlers {
     }
 
     async getattr(path) {
+        if (ignored(path)) throw new FSError(Fuse.ENOENT)
+        console.log(`getattr ${path}`)
+
         const fullPath = this.#resolvedPath(path)
         const stat = await fs.stat(fullPath)
         // Overwrite the size of the ciphertext with the size of the plaintext
-        stat.size = messageSize(stat.size)
 
-        if (stat.isDirectory()) return stat // a directory is never signed
+        if (stat.isFile()) stat.size = messageSize(stat.size)
 
-        if (await hasSignature(fullPath)) stat.size = stat.size - TOTAL_SIGNATURE_SIZE
-
+        console.log(`getattr complete ${path}, size: ${stat.size}`)
         return stat
     }
 
@@ -141,23 +155,23 @@ class FuseHandlers {
     // }
 
     async open(path, flags) {
+        if (ignored(path)) throw new FSError(Fuse.ENOENT)
+
+        console.log(`open ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
         const capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path)
 
-        this.handles.set(fd, new FileHandle({ fd, path: fullPath, capabilities }))
-
+        const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
+        await filehandle.setupMacs()
+        this.handles.set(fd, filehandle)
+        console.log(`open complete ${path}`)
         return fd
     }
 
     // Called when a file descriptor is being released.Happens when a read/ write is done etc.
     async release(path, fd) {
-        const handle = this.handles.get(fd)
-        if (!!handle && handle.needsNewSignature && !basename(path).startsWith("._")) {
-            await appendSignature(handle.path, handle.writeCapability.key)
-            handle.needsNewSignature = false
-        }
-
+        if (ignored(path)) throw new FSError(Fuse.ENOENT)
         this.handles.delete(fd)
     }
 
@@ -171,22 +185,38 @@ class FuseHandlers {
     // }
 
     async read(path, fd, buffer, length, position) {
+        if (ignored(path)) throw new FSError(Fuse.ENOENT)
+
+        console.log(`read ${path}`)
+
         const handle = this.handles.get(fd)
         if (!handle) throw new Error("Read from closed file descriptor")
 
-        return handle.read(buffer, length, position)
+        const result = await handle.read(buffer, length, position)
+        console.log(`read complete ${path}`)
+        return result
     }
 
     async write(path, fd, buffer, length, position) {
+        if (ignored(path)) throw new FSError(Fuse.ENOENT)
+        console.log(`write ${path}`)
         const handle = this.handles.get(fd)
         if (!handle) throw new Error("Write from closed file descriptor")
 
-        return handle.write(buffer, length, position)
+        await removeSignature(handle)
+
+        const result = await handle.write(buffer, length, position)
+
+        await appendSignature(handle)
+        console.log(`write complete ${path}, written ${result}`)
+        return result
     }
 
     // Create and open file
     async create(path, mode) {
+        if (ignored(path)) throw new FSError(Fuse.ENOENT)
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
+        console.log(`create ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
@@ -197,8 +227,10 @@ class FuseHandlers {
             capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
         }
 
-        this.handles.set(fd, new FileHandle({ fd, path: fullPath, capabilities }))
-
+        const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
+        await appendSignature(filehandle)
+        this.handles.set(fd, filehandle)
+        console.log(`create complete ${path}`)
         return fd
     }
 
