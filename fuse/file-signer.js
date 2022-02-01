@@ -15,14 +15,11 @@ const STREAM_CHUNK_SIZE = 4096 //TODO: REFACTOR our of sile-signer + file-handle
 const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES //TODO: REFACTOR our of sile-signer + file-handle
 
 async function prependSignature(filehandle) {
-    console.log(`prependSig start... ${basename(filehandle.path)}`)
     const macs = await readMACs(filehandle.path)
     const hash = hashArray(macs)
-    console.log(`prependSig macs ${macs.length}, hash ${hash.length}`)
     const signature = signDetached(hash, filehandle.writeCapability.key)
     const combined = Buffer.concat([SIGNATURE_MARK, signature])
     await prepend(filehandle.fd, combined)
-    console.log(`prependSig complete ${basename(filehandle.path)}, signature ${signature.length}`)
 }
 
 // Documentation crypto_secretbox_easy: https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox
@@ -33,33 +30,25 @@ async function prependSignature(filehandle) {
 // This function returns the MAC.
 // NOTE: The MAC must *NOT* be modified. It is intented to be read-only
 async function readMACs(path) {
-    console.log("\tread macs:")
-    try {
-        // we make a new fd to ensure it is allowed to read ("r")
-        const fd = await fsFns.open(path, "r")
-        const fileSize = (await fsFns.fstat(fd)).size
-        console.log(`\tread macs: size ${fileSize}`)
-        const res = []
+    // we make a new fd to ensure it is allowed to read ("r")
+    const fd = await fsFns.open(path, "r")
+    const fileSize = (await fsFns.fstat(fd)).size
+    const res = []
 
-        const chunkCount = Math.ceil(fileSize / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
-        const offset = TOTAL_SIGNATURE_SIZE + sodium.crypto_secretbox_NONCEBYTES
+    const chunkCount = Math.ceil(fileSize / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
+    const offset = TOTAL_SIGNATURE_SIZE + sodium.crypto_secretbox_NONCEBYTES
 
-        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
-            const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
-            const mac = Buffer.alloc(sodium.crypto_secretbox_MACBYTES)
-            await fsFns.read(fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
-            res.push(mac)
-        }
-        console.log(`\tread macs. size: ${fileSize}, chunks: ${chunkCount}, macs: ${res.length}`)
-        return res
-    } catch (error) {
-        console.log(`READ MACS ERROR ${error}`)
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+        const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
+        const mac = Buffer.alloc(sodium.crypto_secretbox_MACBYTES)
+        await fsFns.read(fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
+        res.push(mac)
     }
+    return res
 }
 
 async function prepend(fd, content) {
     await fsFns.write(fd, content, 0, content.length, 0)
-    console.log(`\tprepend bytes: ${content.length}`)
 }
 
 function hashArray(array) {

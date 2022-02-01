@@ -79,10 +79,7 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         const stat = await fs.stat(fullPath)
         // Overwrite the size of the ciphertext with the size of the plaintext
-
         if (stat.isFile()) stat.size = messageSize(stat.size)
-
-        if (basename(path).startsWith("1mb")) console.log(`getattr ${path}, size ${stat.size}`)
         return stat
     }
 
@@ -182,39 +179,22 @@ class FuseHandlers {
 
     async read(path, fd, buffer, length, position) {
         if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
-
-        console.log(`read ${path}`)
-
         const handle = this.handles.get(fd)
-
-        const result = await handle.read(buffer, length, position)
-        const totalsize = (await fsFns.fstat(fd)).size
-        console.log(`read complete ${path}, size: ${result}, totalsize ${totalsize}`)
-        return result
+        return await handle.read(buffer, length, position)
     }
 
     async write(path, fd, buffer, length, position) {
         if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
-        const totalsizeBefore = (await fsFns.fstat(fd)).size
-
-        console.log(`write ${path}, size before:  ${totalsizeBefore}`)
         const handle = this.handles.get(fd)
-
-        const result = await handle.write(buffer, length, position)
-
-        const totalsizeAfter = (await fsFns.fstat(fd)).size
-        console.log(`write complete ${path}, size ${totalsizeAfter}`)
+        const bytesWritten = await handle.write(buffer, length, position)
         await prependSignature(handle)
-        const totalsizeAfterSignature = (await fsFns.fstat(fd)).size
-        console.log(`write complete sig ${path}, written ${result}, size after ${totalsizeAfterSignature}`)
-        return result
+        return bytesWritten
     }
 
     // Create and open file
     async create(path, mode) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
-        console.log(`create ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
@@ -223,7 +203,6 @@ class FuseHandlers {
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
         await prependSignature(filehandle)
         this.handles.set(fd, filehandle)
-        console.log(`create complete ${path}`)
         return fd
     }
 
