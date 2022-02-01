@@ -33,9 +33,10 @@ function messageSize(ciphertextBytes) {
 }
 
 class FuseHandlers {
-    constructor(baseDir, keyRing) {
+    constructor(baseDir, keyRing, { debug = true } = {}) {
         this.baseDir = baseDir
         this.keyRing = keyRing
+        this.debug = debug
 
         // Maps file descriptors to FileHandles
         this.handles = new HandleHolder()
@@ -80,6 +81,8 @@ class FuseHandlers {
         const stat = await fs.stat(fullPath)
         // Overwrite the size of the ciphertext with the size of the plaintext
         if (stat.isFile()) stat.size = messageSize(stat.size)
+
+        if (this.debug) console.log(`getattr ${path}, size ${stat.size}`)
         return stat
     }
 
@@ -106,6 +109,7 @@ class FuseHandlers {
     }
 
     async truncate(path, size) {
+        if (this.debug) console.log(`truncate ${path} size ${size}`)
         const fullPath = this.#resolvedPath(path)
         fsFns.truncate(fullPath, size + TOTAL_SIGNATURE_SIZE)
     }
@@ -153,6 +157,7 @@ class FuseHandlers {
     async open(path, flags) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
 
+        if (this.debug) console.log(`open ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
         const capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path)
@@ -165,6 +170,8 @@ class FuseHandlers {
     // Called when a file descriptor is being released.Happens when a read/ write is done etc.
     async release(path, fd) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
+
+        if (this.debug) console.log(`release ${path}`)
         this.handles.delete(fd)
     }
 
@@ -179,15 +186,23 @@ class FuseHandlers {
 
     async read(path, fd, buffer, length, position) {
         if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
+        if (this.debug) console.log(`read ${path} len ${length} pos ${position}`)
+
         const handle = this.handles.get(fd)
-        return await handle.read(buffer, length, position)
+        const bytesRead = await handle.read(buffer, length, position)
+        if (this.debug) console.log(`\t bytes read ${bytesRead}`)
+        return bytesRead
     }
 
     async write(path, fd, buffer, length, position) {
         if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
+        if (this.debug) console.log(`write ${path} len ${length} pos ${position}`)
         const handle = this.handles.get(fd)
         const bytesWritten = await handle.write(buffer, length, position)
+        if (this.debug) console.log(`\tbytes written ${bytesWritten}`)
         await prependSignature(handle)
+        if (this.debug) console.log(`\tprepended signature`)
+
         return bytesWritten
     }
 
@@ -195,6 +210,7 @@ class FuseHandlers {
     async create(path, mode) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
+        if (this.debug) console.log(`create ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
@@ -202,6 +218,7 @@ class FuseHandlers {
 
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
         await prependSignature(filehandle)
+        if (this.debug) console.log(`\tprepended signature`)
         this.handles.set(fd, filehandle)
         return fd
     }
