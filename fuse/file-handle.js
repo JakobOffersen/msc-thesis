@@ -30,6 +30,9 @@ class FileHandle {
         this.readCapability = capabilities.find(cap => cap.type === TYPE_READ) //TODO: refactor to not depend on TYPE_READ
         this.writeCapability = capabilities.find(cap => cap.type === TYPE_WRITE)
         this.verifyCapability = capabilities.find(cap => cap.type === TYPE_VERIFY)
+
+        this.hash = createHash("sha256") // a rolling hash
+        this.shouldHashExistingMACs = true
     }
 
     async #getPlainFileSize() {
@@ -155,6 +158,10 @@ class FileHandle {
             const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
             sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
 
+            // update hash used for signature
+            // Match is prepended to ciphertext: https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox
+            const mac = ciphertext.subarray(0, sodium.crypto_secretbox_MACBYTES)
+            this.hash.update(mac)
             // Write nonce and ciphertext
             await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
 
@@ -166,8 +173,17 @@ class FileHandle {
     }
 
     async prependSignature() {
-        const macs = await this.#readMACs()
-        const hash = this.#hashArray(macs)
+        if (this.shouldHashExistingMACs) {
+            this.shouldHashExistingMACs = false
+
+            const macs = await this.#readMACs()
+
+            for (const mac of macs) {
+                hash.update(mac)
+            }
+        }
+
+        const hash = Buffer.from(this.hash.copy().digest("hex"), "hex") // We digest a copy to continue rolling the hash for the next writes
         const signature = signDetached(hash, this.writeCapability.key)
         const combined = Buffer.concat([SIGNATURE_MARK, signature])
         await this.#prepend(combined)
