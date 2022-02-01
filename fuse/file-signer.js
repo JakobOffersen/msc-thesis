@@ -16,7 +16,7 @@ const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MAC
 
 async function prependSignature(filehandle) {
     console.log(`prependSig start... ${basename(filehandle.path)}`)
-    const macs = [] // await readMACs(filehandle.path)
+    const macs = await readMACs(filehandle.path)
     const hash = hashArray(macs)
     console.log(`prependSig macs ${macs.length}, hash ${hash.length}`)
     const signature = signDetached(hash, filehandle.writeCapability.key)
@@ -38,7 +38,7 @@ async function readMACs(path) {
         // we make a new fd to ensure it is allowed to read ("r")
         const fd = await fsFns.open(path, "r")
         const fileSize = (await fsFns.fstat(fd)).size
-
+        console.log(`\tread macs: size ${fileSize}`)
         const res = []
 
         const chunkCount = Math.ceil(fileSize / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
