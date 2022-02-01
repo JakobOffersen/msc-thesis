@@ -4,7 +4,7 @@ const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
 const { FileHandle, STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE } = require("./file-handle")
-const { hasSignature, appendSignature, TOTAL_SIGNATURE_SIZE, removeSignature } = require("./file-signer")
+const { hasSignature, appendSignature, TOTAL_SIGNATURE_SIZE, removeSignature, prependSignature } = require("./file-signer")
 const HandleHolder = require("./handle-holder")
 
 class FSError extends Error {
@@ -75,7 +75,7 @@ class FuseHandlers {
 
     async getattr(path) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
-        console.log(`getattr ${path}`)
+
 
         const fullPath = this.#resolvedPath(path)
         const stat = await fs.stat(fullPath)
@@ -83,7 +83,7 @@ class FuseHandlers {
 
         if (stat.isFile()) stat.size = messageSize(stat.size)
 
-        console.log(`getattr complete ${path}, size: ${stat.size}`)
+        if (basename(path).startsWith("1mb")) console.log(`getattr ${path}, size ${stat.size}`)
         return stat
     }
 
@@ -157,7 +157,7 @@ class FuseHandlers {
     async open(path, flags) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
 
-        console.log(`open ${path}`)
+        //console.log(`open ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
         const capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path)
@@ -165,7 +165,7 @@ class FuseHandlers {
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
         await filehandle.setupMacs()
         this.handles.set(fd, filehandle)
-        console.log(`open complete ${path}`)
+        //console.log(`open complete ${path}`)
         return fd
     }
 
@@ -193,7 +193,7 @@ class FuseHandlers {
         if (!handle) throw new Error("Read from closed file descriptor")
 
         const result = await handle.read(buffer, length, position)
-        console.log(`read complete ${path}`)
+        console.log(`read complete ${path}, size: ${result}`)
         return result
     }
 
@@ -203,11 +203,9 @@ class FuseHandlers {
         const handle = this.handles.get(fd)
         if (!handle) throw new Error("Write from closed file descriptor")
 
-        await removeSignature(handle)
-
         const result = await handle.write(buffer, length, position)
 
-        await appendSignature(handle)
+        await prependSignature(handle)
         console.log(`write complete ${path}, written ${result}`)
         return result
     }
@@ -228,7 +226,7 @@ class FuseHandlers {
         }
 
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
-        await appendSignature(filehandle)
+        await prependSignature(filehandle)
         this.handles.set(fd, filehandle)
         console.log(`create complete ${path}`)
         return fd

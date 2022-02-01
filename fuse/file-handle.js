@@ -34,7 +34,7 @@ class FileHandle {
     }
 
     async #getPlainFileSize() {
-        return this.#plaintextLength((await fsFns.fstat(this.fd)).size)
+        return this.#plaintextLengthFromCiphertextAndSignatureSize((await fsFns.fstat(this.fd)).size)
     }
 
     #ciphertextChunkIndex(plaintextPosition) {
@@ -46,7 +46,11 @@ class FileHandle {
         return index * STREAM_CIPHER_CHUNK_SIZE
     }
 
-    #plaintextLength(ciphertextBytes) {
+    #plaintextLengthFromCiphertextAndSignatureSize(ciphertextAndSignatureBytes) {
+        return this.#plaintextLengthFromCiphertextSize(ciphertextAndSignatureBytes - TOTAL_SIGNATURE_SIZE)
+    }
+
+    #plaintextLengthFromCiphertextSize(ciphertextBytes) {
         const blockCount = Math.ceil(ciphertextBytes / STREAM_CIPHER_CHUNK_SIZE)
         const tagSizes = blockCount * (sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES)
 
@@ -58,12 +62,13 @@ class FileHandle {
 
         let fileSize = (await fsFns.fstat(this.fd)).size
 
-        const start = this.#chunkPosition(from)
+        const start = this.#chunkPosition(from) + TOTAL_SIGNATURE_SIZE
         // The last chunk of the file may be less than full size.
-        const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE, fileSize - TOTAL_SIGNATURE_SIZE)
+        const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE, fileSize) + TOTAL_SIGNATURE_SIZE
         const length = end - start
         const ciphertext = Buffer.alloc(length)
 
+        console.log(`\treadChunks (${from}, ${to}) = (${start}, ${end})`)
         await fsFns.read(this.fd, ciphertext, 0, length, start)
 
         return ciphertext
@@ -108,7 +113,7 @@ class FileHandle {
             const ciphertext = await this.#readChunks(startChunkIndex, endChunkIndex)
 
             // Decrypt chunks
-            const plaintextLength = this.#plaintextLength(ciphertext.byteLength)
+            const plaintextLength = this.#plaintextLengthFromCiphertextSize(ciphertext.byteLength)
             const plaintext = Buffer.alloc(plaintextLength)
 
             const chunks = Math.ceil(plaintextLength / STREAM_CHUNK_SIZE)
@@ -123,9 +128,8 @@ class FileHandle {
                 const encrypted = inBuffer.subarray(sodium.crypto_secretbox_NONCEBYTES)
 
                 const outStart = chunk * STREAM_CHUNK_SIZE
-                const outEnd = outStart + this.#plaintextLength(chunkLength)
+                const outEnd = outStart + this.#plaintextLengthFromCiphertextSize(chunkLength)
                 const outBuffer = plaintext.subarray(outStart, outEnd)
-
                 const res = sodium.crypto_secretbox_open_easy(outBuffer, encrypted, nonce, this.readCapability.key)
                 if (!res) throw new Error("Decryption failed")
             }
@@ -157,7 +161,7 @@ class FileHandle {
             // Read any existing content from chunk and any succeeding chunks.
             // All of this is a no-op if the write is an append.
             const startChunkPosition = this.#chunkPosition(startChunkIndex)
-            const startChunkPlainPosition = this.#plaintextLength(startChunkPosition)
+            const startChunkPlainPosition = this.#plaintextLengthFromCiphertextSize(startChunkPosition)
 
             const readLength = fileSize - startChunkPlainPosition
             const existing = Buffer.alloc(readLength)
@@ -172,7 +176,7 @@ class FileHandle {
             // Write chunks
             // The file descriptor is currently pointing at any
             let written = 0 // Plaintext bytes written
-            let writePosition = startChunkPosition // Ciphertext position
+            let writePosition = startChunkPosition + TOTAL_SIGNATURE_SIZE // Ciphertext position
 
             while (written < combined.byteLength) {
                 const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
@@ -188,14 +192,17 @@ class FileHandle {
                 sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
 
                 // Write nonce and ciphertext
-                await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
+                try {
+                    await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
+                } catch (error) {
+                    console.log("ERROR!", error)
+                }
 
                 written += toBeWritten
                 writePosition += out.byteLength
             }
 
             return length
-
         } catch (error) {
             console.log(`error ${error}`)
         }
