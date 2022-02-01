@@ -110,11 +110,11 @@ class FuseHandlers {
 
     async truncate(path, size) {
         const fullPath = this.#resolvedPath(path)
-        fsFns.truncate(fullPath, size)
+        fsFns.truncate(fullPath, size + TOTAL_SIGNATURE_SIZE)
     }
 
     async ftruncate(path, fd, size) {
-        return fsFns.ftruncate(fd, size)
+        return fsFns.ftruncate(fd, size + TOTAL_SIGNATURE_SIZE)
     }
 
     // async readlink(path) {
@@ -156,15 +156,12 @@ class FuseHandlers {
     async open(path, flags) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
 
-        //console.log(`open ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
         const capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path)
 
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
-        await filehandle.setupMacs()
         this.handles.set(fd, filehandle)
-        //console.log(`open complete ${path}`)
         return fd
     }
 
@@ -191,20 +188,25 @@ class FuseHandlers {
         const handle = this.handles.get(fd)
 
         const result = await handle.read(buffer, length, position)
-        console.log(`read complete ${path}, size: ${result}`)
+        const totalsize = (await fsFns.fstat(fd)).size
+        console.log(`read complete ${path}, size: ${result}, totalsize ${totalsize}`)
         return result
     }
 
     async write(path, fd, buffer, length, position) {
         if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
+        const totalsizeBefore = (await fsFns.fstat(fd)).size
 
-        console.log(`write ${path}`)
+        console.log(`write ${path}, size before:  ${totalsizeBefore}`)
         const handle = this.handles.get(fd)
 
         const result = await handle.write(buffer, length, position)
 
+        const totalsizeAfter = (await fsFns.fstat(fd)).size
+        console.log(`write complete ${path}, size ${totalsizeAfter}`)
         await prependSignature(handle)
-        console.log(`write complete ${path}, written ${result}`)
+        const totalsizeAfterSignature = (await fsFns.fstat(fd)).size
+        console.log(`write complete sig ${path}, written ${result}, size after ${totalsizeAfterSignature}`)
         return result
     }
 

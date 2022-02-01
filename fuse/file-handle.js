@@ -25,12 +25,6 @@ class FileHandle {
         this.readCapability = capabilities.find(cap => cap.type === TYPE_READ) //TODO: refactor to not depend on TYPE_READ
         this.writeCapability = capabilities.find(cap => cap.type === TYPE_WRITE)
         this.verifyCapability = capabilities.find(cap => cap.type === TYPE_VERIFY)
-
-        this.macs // is computed later
-    }
-
-    async setupMacs() {
-        this.macs = await this.#readAllMACsOfFile()
     }
 
     async #getPlainFileSize() {
@@ -72,33 +66,6 @@ class FileHandle {
         await fsFns.read(this.fd, ciphertext, 0, length, start)
 
         return ciphertext
-    }
-
-    // Documentation crypto_secretbox_easy: https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox
-    // According to docs, the MAC is *prepended* to the message.
-    // In #write, we *prepend* the nonce to the entire MAC+cipher.
-    // Thus each chunk follows this pattern:
-    // | NONCE (24B) | MAC (16B) | CIPHER (variable length) |
-    // This function returns the MAC.
-    // NOTE: The MAC must *NOT* be modified. It is intented to be read-only
-    async #readAllMACsOfFile() {
-        const fileSize = (await fsFns.fstat(this.fd)).size
-
-        if (fileSize === 0) return []
-
-        const res = []
-
-        const chunkCount = Math.ceil(fileSize / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
-        const nonceOffset = sodium.crypto_secretbox_NONCEBYTES
-
-        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
-            const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + nonceOffset
-            const mac = Buffer.alloc(sodium.crypto_secretbox_MACBYTES)
-            const chunk = await fsFns.read(this.fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
-            res.push(chunk)
-        }
-
-        return res
     }
 
     async read(buffer, length, position) {
@@ -150,58 +117,55 @@ class FileHandle {
     async write(buffer, length, position) {
         if (length === 0 || !this.readCapability || !this.writeCapability) return 0
 
-        try {
-            const fileSize = await this.#getPlainFileSize()
+        const fullsize = (await fsFns.fstat(this.fd)).size
+        const fileSize = await this.#getPlainFileSize()
+        console.log(`\twrite ${basename(this.path)} len ${length}, pos ${position}, size: ${fileSize}, fullsize: ${fullsize}`)
+        if (position > fileSize) throw Error(`Out of bounds write`)
 
-            if (position > fileSize) throw Error(`Out of bounds write`)
+        // Figure out in which chunk the write starts
+        const startChunkIndex = this.#ciphertextChunkIndex(position)
 
-            // Figure out in which chunk the write starts
-            const startChunkIndex = this.#ciphertextChunkIndex(position)
+        // Read any existing content from chunk and any succeeding chunks.
+        // All of this is a no-op if the write is an append.
+        const startChunkPosition = this.#chunkPosition(startChunkIndex)
+        const startChunkPlainPosition = this.#plaintextLengthFromCiphertextSize(startChunkPosition)
 
-            // Read any existing content from chunk and any succeeding chunks.
-            // All of this is a no-op if the write is an append.
-            const startChunkPosition = this.#chunkPosition(startChunkIndex)
-            const startChunkPlainPosition = this.#plaintextLengthFromCiphertextSize(startChunkPosition)
+        const readLength = fileSize - startChunkPlainPosition
+        const existing = Buffer.alloc(readLength)
+        await this.read(existing, existing.byteLength, startChunkPlainPosition)
 
-            const readLength = fileSize - startChunkPlainPosition
-            const existing = Buffer.alloc(readLength)
-            await this.read(existing, existing.byteLength, startChunkPlainPosition)
+        const head = existing.subarray(0, position - startChunkPlainPosition)
+        const tail = head.byteLength + buffer.byteLength > fileSize ? Buffer.alloc(0) : existing.subarray(head.byteLength + buffer.byteLength)
 
-            const head = existing.subarray(0, position - startChunkPlainPosition)
-            const tail = head.byteLength + buffer.byteLength > fileSize ? Buffer.alloc(0) : existing.subarray(head.byteLength + buffer.byteLength)
+        // Create a combined buffer of what needs to be encrypted and written.
+        const combined = Buffer.concat([head, buffer, tail])
 
-            // Create a combined buffer of what needs to be encrypted and written.
-            const combined = Buffer.concat([head, buffer, tail])
+        // Write chunks
+        // The file descriptor is currently pointing at any
+        let written = 0 // Plaintext bytes written
+        let writePosition = startChunkPosition + TOTAL_SIGNATURE_SIZE // Ciphertext position
 
-            // Write chunks
-            // The file descriptor is currently pointing at any
-            let written = 0 // Plaintext bytes written
-            let writePosition = startChunkPosition + TOTAL_SIGNATURE_SIZE // Ciphertext position
+        while (written < combined.byteLength) {
+            const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
+            const plaintext = combined.subarray(written, written + toBeWritten)
+            const out = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES + toBeWritten + sodium.crypto_secretbox_MACBYTES)
 
-            while (written < combined.byteLength) {
-                const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
-                const plaintext = combined.subarray(written, written + toBeWritten)
-                const out = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES + toBeWritten + sodium.crypto_secretbox_MACBYTES)
+            // Generate nonce
+            const nonce = out.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
+            sodium.randombytes_buf(nonce)
 
-                // Generate nonce
-                const nonce = out.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
-                sodium.randombytes_buf(nonce)
+            // Encrypt chunk
+            const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
+            sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
 
-                // Encrypt chunk
-                const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
-                sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
+            // Write nonce and ciphertext
+            await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
 
-                // Write nonce and ciphertext
-                await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
-
-                written += toBeWritten
-                writePosition += out.byteLength
-            }
-
-            return length
-        } catch (error) {
-            console.log(`error ${error}`)
+            written += toBeWritten
+            writePosition += out.byteLength
         }
+
+        return length
     }
 }
 
