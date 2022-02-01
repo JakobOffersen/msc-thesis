@@ -1,8 +1,6 @@
 const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require("./../key-management/config")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
-const { createReadStream, statSync, readFileSync } = require("fs")
-const { basename } = require("path")
 const { signDetached } = require("../crypto")
 const { createHash } = require("crypto")
 
@@ -205,19 +203,6 @@ class FileHandle {
             res.push(mac)
         }
         return res
-    }
-
-    #hashArray(array) {
-        if (array.length === 0) return Buffer.alloc(0)
-
-        const hash = createHash("sha256")
-
-        for (const entry of array) {
-            hash.update(entry)
-        }
-
-        const digest = hash.digest("hex")
-        return Buffer.from(digest, "hex")
     }
 
     async #prepend(content) {

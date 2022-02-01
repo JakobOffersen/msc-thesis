@@ -3,7 +3,7 @@ const { join, basename } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
-const { FileHandle, STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("./file-handle")
+const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("./file-handle")
 const HandleHolder = require("./handle-holder")
 
 class FSError extends Error {
