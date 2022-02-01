@@ -1,37 +1,23 @@
 const { signDetached } = require("./../crypto")
 const { createHash } = require("crypto")
-const { createWriteStream, createReadStream } = require("fs")
+const { createReadStream } = require("fs")
 const sodium = require("sodium-native")
 const fsFns = require("./../fsFns")
 const { truncate } = require("fs/promises")
 const { assert } = require("console")
+const { basename } = require("path")
 
 const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
 const SIGNATURE_MARK = Buffer.from("signature:")
 const TOTAL_SIGNATURE_SIZE = SIGNATURE_SIZE + SIGNATURE_MARK.length
 
-async function hasSignature(path) {
-    const fd = await fsFns.open(path, "r")
-    const fileSize = (await fsFns.fstat(fd)).size
-
-    const signatureMarkSize = SIGNATURE_MARK.length
-    const position = fileSize - signatureMarkSize - SIGNATURE_SIZE
-    if (position < 0) return false // the file is smaller than the marker + signature => the signature cannot be there
-
-    // read the marker from the file
-    const marker = Buffer.alloc(signatureMarkSize)
-    await fsFns.read(fd, marker, 0, signatureMarkSize, position)
-
-    return Buffer.compare(SIGNATURE_MARK, marker) === 0 // .compare returns 0 iff buffers are equal
-}
-
 async function prependSignature(filehandle) {
-    console.log(`prependSig start... ${filehandle.path}`)
+    console.log(`prependSig start... ${basename(filehandle.path)}`)
     const hash = await hashFile(filehandle)
     const signature = signDetached(Buffer.from(hash, "hex"), filehandle.writeCapability.key)
     const combined = Buffer.concat([SIGNATURE_MARK, signature])
     await prepend(filehandle.fd, combined)
-    console.log(`prependSig complete ${filehandle.path}`)
+    console.log(`prependSig complete ${basename(filehandle.path)}`)
 }
 
 async function removeSignature(filehandle) {
@@ -63,6 +49,5 @@ async function hashFile(filehandle) {
 module.exports = {
     prependSignature,
     removeSignature,
-    hasSignature,
     TOTAL_SIGNATURE_SIZE
 }

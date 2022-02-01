@@ -76,7 +76,6 @@ class FuseHandlers {
     async getattr(path) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
 
-
         const fullPath = this.#resolvedPath(path)
         const stat = await fs.stat(fullPath)
         // Overwrite the size of the ciphertext with the size of the plaintext
@@ -185,12 +184,11 @@ class FuseHandlers {
     // }
 
     async read(path, fd, buffer, length, position) {
-        if (ignored(path)) throw new FSError(Fuse.ENOENT)
+        if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
 
         console.log(`read ${path}`)
 
         const handle = this.handles.get(fd)
-        if (!handle) throw new Error("Read from closed file descriptor")
 
         const result = await handle.read(buffer, length, position)
         console.log(`read complete ${path}, size: ${result}`)
@@ -198,10 +196,10 @@ class FuseHandlers {
     }
 
     async write(path, fd, buffer, length, position) {
-        if (ignored(path)) throw new FSError(Fuse.ENOENT)
+        if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
+
         console.log(`write ${path}`)
         const handle = this.handles.get(fd)
-        if (!handle) throw new Error("Write from closed file descriptor")
 
         const result = await handle.write(buffer, length, position)
 
@@ -218,12 +216,7 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
-        let capabilities
-        if (basename(path).startsWith("._")) {
-            capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path) // re-use capabilities for the resource-fork version of a file
-        } else {
-            capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
-        }
+        const capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
 
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
         await prependSignature(filehandle)

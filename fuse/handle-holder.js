@@ -19,6 +19,14 @@ class HandleHolder {
     delete(key) {
         this.map.delete(key)
     }
+
+    has(key) {
+        if (typeof key === "number") return this.map.has(key)
+        for (const handle of this.map.values()) {
+            if (handle.path === key) return true
+        }
+        return false
+    }
 }
 
 module.exports = HandleHolder

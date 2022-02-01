@@ -192,11 +192,7 @@ class FileHandle {
                 sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
 
                 // Write nonce and ciphertext
-                try {
-                    await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
-                } catch (error) {
-                    console.log("ERROR!", error)
-                }
+                await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
 
                 written += toBeWritten
                 writePosition += out.byteLength
