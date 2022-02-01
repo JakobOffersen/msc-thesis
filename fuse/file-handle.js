@@ -64,7 +64,7 @@ class FileHandle {
 
         const start = this.#chunkPosition(from) + TOTAL_SIGNATURE_SIZE
         // The last chunk of the file may be less than full size.
-        const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE, fileSize) + TOTAL_SIGNATURE_SIZE
+        const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE + TOTAL_SIGNATURE_SIZE, fileSize)
         const length = end - start
         const ciphertext = Buffer.alloc(length)
 
