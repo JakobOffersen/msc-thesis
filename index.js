@@ -9,7 +9,7 @@ const { LOCAL_KEYRING_PATH } = require("./key-management/config")
 const BASE_DIR = resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")
 const keyRing = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR)
-const handlers = new FuseHandlers(BASE_DIR, keyRing, { debug: false })
+const handlers = new FuseHandlers(BASE_DIR, keyRing, { debug: true })
 const cbHandlers = callbackifyHandlersObj(handlers)
 
 const opts = {

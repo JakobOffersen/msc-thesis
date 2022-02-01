@@ -3,8 +3,7 @@ const { join, basename } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
-const { FileHandle, STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE } = require("./file-handle")
-const { hasSignature, appendSignature, TOTAL_SIGNATURE_SIZE, removeSignature, prependSignature } = require("./file-signer")
+const { FileHandle, STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("./file-handle")
 const HandleHolder = require("./handle-holder")
 
 class FSError extends Error {
@@ -200,7 +199,7 @@ class FuseHandlers {
         const handle = this.handles.get(fd)
         const bytesWritten = await handle.write(buffer, length, position)
         if (this.debug) console.log(`\tbytes written ${bytesWritten}`)
-        await prependSignature(handle)
+        await handle.prependSignature()
         if (this.debug) console.log(`\tprepended signature`)
 
         return bytesWritten
@@ -217,7 +216,7 @@ class FuseHandlers {
         const capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
 
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
-        await prependSignature(filehandle)
+        await filehandle.prependSignature()
         if (this.debug) console.log(`\tprepended signature`)
         this.handles.set(fd, filehandle)
         return fd

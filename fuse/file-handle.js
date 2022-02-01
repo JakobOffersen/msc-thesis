@@ -1,9 +1,10 @@
 const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require("./../key-management/config")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
-const { hasSignature, TOTAL_SIGNATURE_SIZE } = require("./file-signer")
 const { createReadStream, statSync, readFileSync } = require("fs")
 const { basename } = require("path")
+const { signDetached } = require("../crypto")
+const { createHash } = require("crypto")
 
 // The maximum size of a message appended to the stream
 // Every chunk, except for the last, in the stream is of this size.
@@ -11,6 +12,10 @@ const STREAM_CHUNK_SIZE = 4096
 
 // The maximum size of a chunk after it has been encrypted.
 const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
+
+const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
+const SIGNATURE_MARK = Buffer.from("signature:")
+const TOTAL_SIGNATURE_SIZE = SIGNATURE_SIZE + SIGNATURE_MARK.length
 
 class FileHandle {
     /**
@@ -159,10 +164,54 @@ class FileHandle {
 
         return length
     }
+
+    async prependSignature() {
+        const macs = await this.#readMACs()
+        const hash = this.#hashArray(macs)
+        const signature = signDetached(hash, this.writeCapability.key)
+        const combined = Buffer.concat([SIGNATURE_MARK, signature])
+        await this.#prepend(combined)
+    }
+
+    async #readMACs() {
+        // we make a new fd to ensure it is allowed to read ("r")
+        const fd = await fsFns.open(this.path, "r")
+        const fileSize = (await fsFns.fstat(fd)).size
+        const res = []
+
+        const chunkCount = Math.ceil(fileSize / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
+        const offset = TOTAL_SIGNATURE_SIZE + sodium.crypto_secretbox_NONCEBYTES
+
+        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+            const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
+            const mac = Buffer.alloc(sodium.crypto_secretbox_MACBYTES)
+            await fsFns.read(fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
+            res.push(mac)
+        }
+        return res
+    }
+
+    #hashArray(array) {
+        if (array.length === 0) return Buffer.alloc(0)
+
+        const hash = createHash("sha256")
+
+        for (const entry of array) {
+            hash.update(entry)
+        }
+
+        const digest = hash.digest("hex")
+        return Buffer.from(digest, "hex")
+    }
+
+    async #prepend(content) {
+        await fsFns.write(this.fd, content, 0, content.length, 0)
+    }
 }
 
 module.exports = {
     FileHandle,
     STREAM_CHUNK_SIZE,
-    STREAM_CIPHER_CHUNK_SIZE
+    STREAM_CIPHER_CHUNK_SIZE,
+    TOTAL_SIGNATURE_SIZE
 }
