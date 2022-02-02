@@ -16,17 +16,16 @@ function createDeleteFileContent(rev, writekey) {
 
 /**
  *
- * @param {Buffer} content The content of the file
- * @returns true iff 'content' is marked as a delete-operation (e.g made by 'createDeleteFileContent') else false
+ * @param {String} localPath The local path of the file to be checked
+ * @returns true iff 'content' is marked as a delete-operation (e.g made by 'createDeleteFileContent')
  */
 async function fileAtPathMarkedAsDeleted(localPath) {
     try {
-        console.log(`\tfileAtPathMarkedAsDeleted ${localPath}`)
-        const fd = await fsFns.open(localPath, "r")
         const prefix = Buffer.alloc(FILE_DELETE_PREFIX_BUFFER.length)
 
+        const fd = await fsFns.open(localPath, "r")
         await fsFns.read(fd, prefix, 0, FILE_DELETE_PREFIX_BUFFER.length, 0)
-        console.log(`\tfileAtPathMarkedAsDeleted ${prefix.subarray(0, 5).toString("hex")}`)
+
         return Buffer.compare(prefix, FILE_DELETE_PREFIX_BUFFER) === 0
     } catch (error) {
         // file does not exist and is hence not marked as deleted, as the mark is inside a file. We require a deleted file to be marked as deleted

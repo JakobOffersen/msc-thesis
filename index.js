@@ -1,15 +1,12 @@
-const { resolve } = require("path")
 const Fuse = require("fuse-native")
 const { promisify } = require("util")
 const { beforeShutdown, callbackifyHandlersObj } = require("./util")
 const { FuseHandlers } = require("./fuse/fuse-crypto-handlers")
 const KeyRing = require("./key-management/keyring")
-const { LOCAL_KEYRING_PATH } = require("./key-management/config")
+const { LOCAL_KEYRING_PATH, BASE_DIR_DROPBOX, BASE_DIR_LOCAL, MOUNT_DIR } = require("./constants")
 
-const BASE_DIR = "/Users/jakoboffersen/Dropbox"
-const MOUNT_DIR = resolve("./mnt")
-const keyRing = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR)
-const handlers = new FuseHandlers(BASE_DIR, keyRing, { debug: false })
+const keyRing = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR_LOCAL)
+const handlers = new FuseHandlers(BASE_DIR_LOCAL, keyRing, { debug: true })
 const cbHandlers = callbackifyHandlersObj(handlers)
 
 const opts = {

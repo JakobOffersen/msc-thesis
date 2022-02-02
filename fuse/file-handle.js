@@ -1,19 +1,16 @@
-const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require("./../key-management/config")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const { signDetached } = require("../crypto")
 const { createHash } = require("crypto")
-
-// The maximum size of a message appended to the stream
-// Every chunk, except for the last, in the stream is of this size.
-const STREAM_CHUNK_SIZE = 4096
-
-// The maximum size of a chunk after it has been encrypted.
-const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
-
-const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
-const SIGNATURE_MARK = Buffer.from("signature:")
-const TOTAL_SIGNATURE_SIZE = SIGNATURE_SIZE + SIGNATURE_MARK.length
+const {
+    STREAM_CHUNK_SIZE,
+    STREAM_CIPHER_CHUNK_SIZE,
+    SIGNATURE_MARK,
+    TOTAL_SIGNATURE_SIZE,
+    CAPABILITY_TYPE_READ,
+    CAPABILITY_TYPE_WRITE,
+    CAPABILITY_TYPE_VERIFY
+} = require("../constants")
 
 class FileHandle {
     /**
@@ -25,9 +22,9 @@ class FileHandle {
         this.fd = fd
         this.path = path
 
-        this.readCapability = capabilities.find(cap => cap.type === TYPE_READ) //TODO: refactor to not depend on TYPE_READ
-        this.writeCapability = capabilities.find(cap => cap.type === TYPE_WRITE)
-        this.verifyCapability = capabilities.find(cap => cap.type === TYPE_VERIFY)
+        this.readCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_READ) //TODO: refactor to not depend on TYPE_READ
+        this.writeCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_WRITE)
+        this.verifyCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_VERIFY)
 
         this.hash = createHash("sha256") // a rolling hash
         this.shouldHashExistingMACs = true

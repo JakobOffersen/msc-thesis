@@ -1,7 +1,7 @@
 const fs = require("fs/promises")
 const { relative, resolve } = require("path")
 const { DateTime } = require("luxon")
-const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require("./config")
+const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 const { clone, cloneAll, generateCapabilitiesForPath } = require("./capability-utils")
 
 const ignore = ["/.DS_Store"]
@@ -179,7 +179,7 @@ class KeyRing {
             capability.hasOwnProperty("path") &&
             DateTime.isDateTime(DateTime.fromISO(capability.createdAt)) &&
             DateTime.isDateTime(DateTime.fromISO(capability.updatedAt)) &&
-            [TYPE_READ, TYPE_WRITE, TYPE_VERIFY].includes(capability.type) &&
+            [CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY].includes(capability.type) &&
             (typeof capability.key === "string" || Buffer.isBuffer(capability.key)) &&
             typeof capability.path === "string"
 
@@ -187,7 +187,7 @@ class KeyRing {
     }
 
     _isValidCapabilityType(type) {
-        return type === TYPE_READ || type === TYPE_WRITE || type === TYPE_VERIFY
+        return type === CAPABILITY_TYPE_READ || type === CAPABILITY_TYPE_WRITE || type === CAPABILITY_TYPE_VERIFY
     }
 
     _indexMatchingPathAndType(capabilities, path, type) {

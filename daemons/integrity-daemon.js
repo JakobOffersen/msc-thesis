@@ -5,20 +5,14 @@ const { DateTime } = require("luxon")
 const KeyRing = require("../key-management/keyring")
 const sodium = require("sodium-native")
 const { fileAtPathMarkedAsDeleted, verifyDeleteFileContent } = require("../file-delete-utils")
-const { LOCAL_KEYRING_PATH } = require("../key-management/config")
-const { STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("../fuse/file-handle")
+const { LOCAL_KEYRING_PATH, FSP_ACCESS_TOKEN, BASE_DIR_LOCAL, SIGNATURE_MARK, STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("../constants")
 const { createHash } = require("crypto")
 const { verifyDetached } = require("../crypto")
 const fsFns = require("../fsFns")
 
-//TODO: Træk dropbox-client-path og accessToken ud i .env/config-fil
-const accessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
-const fsp = new DropboxProvider(accessToken, __dirname)
+const fsp = new DropboxProvider(FSP_ACCESS_TOKEN, __dirname)
 
-const BASE_DIR = "/Users/jakoboffersen/Dropbox"
-const kr = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR)
-
-const SIGNATURE_MARK = Buffer.from("signature:") //TODO: Refactor this out
+const kr = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR_LOCAL)
 
 //TODO: How do we ensure that valid writes to already-deleted (with mark) are rejected?
 const verifySignature = async ({ localPath, remotePath }) => {
@@ -74,7 +68,7 @@ const fetchLatestRevisionID = async remotePath => {
 
 const checker = new IntegrityChecker({
     fsp,
-    watchPath: BASE_DIR,
+    watchPath: BASE_DIR_LOCAL,
     predicate: verifySignature
 })
 

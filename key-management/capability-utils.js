@@ -1,6 +1,6 @@
 const crypto = require("../crypto")
 const { DateTime } = require("luxon")
-const { TYPE_READ, TYPE_WRITE, TYPE_VERIFY } = require('./config')
+const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 
 function generateCapabilitiesForPath(relativePath) {
     const read = crypto.makeSymmetricKey()
@@ -12,21 +12,21 @@ function generateCapabilitiesForPath(relativePath) {
         {
             key: read,
             path: relativePath,
-            type: TYPE_READ,
+            type: CAPABILITY_TYPE_READ,
             createdAt,
             updatedAt
         },
         {
             key: pair.sk,
             path: relativePath,
-            type: TYPE_WRITE,
+            type: CAPABILITY_TYPE_WRITE,
             createdAt,
             updatedAt
         },
         {
             key: pair.pk,
             path: relativePath,
-            type: TYPE_VERIFY,
+            type: CAPABILITY_TYPE_VERIFY,
             createdAt,
             updatedAt
         }

@@ -106,7 +106,12 @@ function verifyCombined(signedMessage, pk) {
 }
 
 function verifyDetached(signature, message, pk) {
-    return sodium.crypto_sign_verify_detached(signature, message, pk)
+    try {
+        return sodium.crypto_sign_verify_detached(signature, message, pk)
+    } catch (error) {
+        return false // 'crypto_sign_verify_detached' throws an error if the inputs are of wrong size. 
+    }
+
 }
 
 function streamXOR(input, nonce, initializationCounter, key) {

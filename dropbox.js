@@ -8,9 +8,9 @@ const dropboxApp = {
 }
 
 const baseDir = path.resolve("./cache")
-const provider = new DropboxProvider(dropboxApp.accessToken, baseDir);
+const provider = new DropboxProvider(dropboxApp.accessToken, baseDir)
 
-(async () => {
+;(async () => {
     await provider.upload("/test3.bin")
 })().catch(error => {
     console.error(error)

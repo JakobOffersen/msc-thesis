@@ -2,9 +2,12 @@ const chokidar = require("chokidar")
 const path = require("path")
 const EventEmitter = require("events")
 const fs = require("fs/promises")
+const { createReadStream } = require("fs")
 const queue = require("async/queue")
-const { v4: uuidv4 } = require("uuid")
 const { relative } = require("path")
+const { Dropbox } = require("dropbox")
+const fsFns = require("../fsFns")
+const dch = require("../dropbox-content-hasher")
 
 /// IntegrityChecker reacts to changes on 'watchPatch' (intended to be the dropbox-client)
 /// and verifies each change against 'predicate'.
@@ -21,11 +24,11 @@ class IntegrityChecker extends EventEmitter {
     static CONFLICT_RESOLUTION_SUCCEEDED = "conflict-resolution-succeeded"
     static EQUIVALENT_CONFLICT_IS_PENDING = "equivalent-conflict-is-pending"
 
-    constructor({ fsp, watchPath, predicate }) {
+    constructor({ watchPath, keyring }) {
         super()
-        this._fsp = fsp
+        this._db = new Dropbox({ accessToken: "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W" })
         this._watchPath = watchPath
-        this._predicate = predicate
+        this._keyring = keyring
 
         // We use a job-queue for the rollback-jobs.
         // Jobs are 'push'ed onto the queue and handled by a single worker.
@@ -55,7 +58,7 @@ class IntegrityChecker extends EventEmitter {
         // setup watcher
         this._watcher = chokidar.watch(watchPath, {
             ignored: /(^|[\/\\])\../, // ignore dotfiles
-            persistent: true
+            persistent: true // indicates that chokidar should continue the process as long as files are watched
         })
         // Chokiar emits 'add' for all existing files in the watched directory
         // To only watch for future changes, we only add our 'add' listener after
@@ -72,16 +75,27 @@ class IntegrityChecker extends EventEmitter {
         await this._watcher.close()
     }
 
-    _onAdd(localPath) {
-        this._checkIfRollbackNeeded(localPath, { eventType: "add" })
-    }
+    async _verifyFile({ localPath, remotePath }) {
+        const verifyCapability = await this._keyring.getCapabilityWithPathAndType(remotePath, "verify")
+        if (!verifyCapability) return true // we accept files we cannot check.
 
-    _onChange(localPath) {
-        this._checkIfRollbackNeeded(localPath, { eventType: "change" })
-    }
+        const contentHash = await contentHash(localPath)
 
-    _onUnlink(localPath) {
-        this._checkIfRollbackNeeded(localPath, { eventType: "unlink" })
+        if (await fileAtPathMarkedAsDeleted(localPath)) {
+            const latestRevisionID = await fetchLatestRevisionID(remotePath)
+            const verified = verifyDeleteFileContent(content, verifyCapability.key, latestRevisionID)
+            console.log(timestamp(`${remotePath}: marked as deleted. Verified: ${verified}`))
+            return verified
+        } else {
+            // is a regular write-operation: verify the signature
+            // compute the hash from the macs in all chunks
+            const macHash = await macHash(localPath)
+
+            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+            await fsFns.read(fd, expectedSignature, 0, sodium.crypto_sign_BYTES, SIGNATURE_MARK.length)
+
+            return verifyDetached(signature, digest, verifyCapability.key)
+        }
     }
 
     /** Checks if the modified file at 'localPath' satisfies the predicate given in the constructor
@@ -156,6 +170,46 @@ class IntegrityChecker extends EventEmitter {
         const pendingJobs = [...this._jobQueue]
         return pendingJobs.some(j => j.remotePath === job.remotePath)
     }
+
+    _onAdd(localPath) {
+        this._checkIfRollbackNeeded(localPath, { eventType: "add" })
+    }
+
+    _onChange(localPath) {
+        this._checkIfRollbackNeeded(localPath, { eventType: "change" })
+    }
+
+    _onUnlink(localPath) {
+        this._checkIfRollbackNeeded(localPath, { eventType: "unlink" })
+    }
+}
+
+const contentHash = async localPath => {
+    return new Promise((resolve, reject) => {
+        const hasher = dch.create()
+        const stream = createReadStream(localPath)
+        stream.on("data", data => hasher.update(data))
+        stream.on("end", () => resolve(hasher.digest("hex")))
+        stream.on("error", err => reject(err))
+    })
+}
+
+const macHash = async localPath => {
+    const hash = createHash("sha256")
+    const fd = await fsFns.open(localPath, "r")
+    const size = (await fsFns.fstat(fd)).size
+
+    const chunkCount = Math.ceil(size / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
+    const offset = TOTAL_SIGNATURE_SIZE + sodium.crypto_secretbox_NONCEBYTES
+
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+        const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
+        const mac = Buffer.alloc(sodium.crypto_secretbox_MACBYTES)
+        await fsFns.read(fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
+        hash.update(mac)
+    }
+
+    return hash.digest("hex")
 }
 
 module.exports = IntegrityChecker
