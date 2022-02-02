@@ -1,99 +1,116 @@
-const IntegrityChecker = require("../integrity-checker")
+const IntegrityChecker = require("./integrity-checker")
 const { DropboxProvider } = require("../storage_providers/storage_provider")
 const { beforeShutdown } = require("../util")
 const { DateTime } = require("luxon")
-const KeyRing = require("../keyring")
-const crypto = require("../crypto")
-const { join } = require("path")
-const { contentIsMarkedAsDeleted, verifyDeleteFileContent } = require("../file-delete-utils")
+const KeyRing = require("../key-management/keyring")
+const sodium = require("sodium-native")
+const { fileAtPathMarkedAsDeleted, verifyDeleteFileContent } = require("../file-delete-utils")
+const { LOCAL_KEYRING_PATH } = require("../key-management/config")
+const { STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("../fuse/file-handle")
+const { createHash } = require("crypto")
+const { verifyDetached } = require("../crypto")
+const fsFns = require("../fsFns")
 
 //TODO: Træk dropbox-client-path og accessToken ud i .env/config-fil
 const accessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
-const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 const fsp = new DropboxProvider(accessToken, __dirname)
 
-// NOTE: This daemon currently only verifies signatures using the key-ring below.
-// The keyring is populated with a verify-key in the bottom of this file.
-// This is for demonstration purposes only, and should likely be extended
-// to a more sophisticated setup at a later stage.
-const kr = new KeyRing(join(__dirname, "mock.keyring"))
-const testfilename = join(__dirname, "test-file.txt")
+const BASE_DIR = "/Users/jakoboffersen/Dropbox"
+const kr = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR)
+
+const SIGNATURE_MARK = Buffer.from("signature:") //TODO: Refactor this out
 
 //TODO: How do we ensure that valid writes to already-deleted (with mark) are rejected?
-const verifySignature = async ({ content, remotePath }) => {
-	const verifyCapability = await kr.getCapabilityWithPathAndType(testfilename, "verify")
+const verifySignature = async ({ localPath, remotePath }) => {
+    const verifyCapability = await kr.getCapabilityWithPathAndType(remotePath, "verify")
 
-	if (contentIsMarkedAsDeleted(content)) {
+    if (!verifyCapability) return true // we accept files we cannot check.
+
+    if (await fileAtPathMarkedAsDeleted(localPath)) {
         const latestRevisionID = await fetchLatestRevisionID(remotePath)
-		const verified = verifyDeleteFileContent(content, verifyCapability.key, latestRevisionID)
-		console.log(timestamp(`${remotePath}: marked as deleted. Verified: ${verified}`))
-		return verified
-	} else {
-		// is a regular write-operation: verify the signature
-		try {
-			const { verified } = crypto.verifyCombined(content, verifyCapability.key) // could throw if 'content' is too short
-			return verified
-		} catch {
-			return false
-		}
-	}
+        const verified = verifyDeleteFileContent(content, verifyCapability.key, latestRevisionID)
+        console.log(timestamp(`${remotePath}: marked as deleted. Verified: ${verified}`))
+        return verified
+    } else {
+        // is a regular write-operation: verify the signature
+        // compute the hash from the macs in all chunks
+        const hash = createHash("sha256")
+
+        try {
+            const fd = await fsFns.open(localPath, "r")
+            const size = (await fsFns.fstat(fd)).size
+
+            const chunkCount = Math.ceil(size / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
+            const offset = TOTAL_SIGNATURE_SIZE + sodium.crypto_secretbox_NONCEBYTES
+
+            for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+                const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
+                const mac = Buffer.alloc(sodium.crypto_secretbox_MACBYTES)
+                await fsFns.read(fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
+                hash.update(mac)
+            }
+
+            const digest = Buffer.from(hash.digest("hex"), "hex")
+
+            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+            await fsFns.read(fd, expectedSignature, 0, sodium.crypto_sign_BYTES, SIGNATURE_MARK.length)
+
+            return verifyDetached(signature, digest, verifyCapability.key)
+        } catch {
+            // the file has been deleted. We dont allow files to be deleted
+            return false
+        }
+    }
 }
 
-const fetchLatestRevisionID = async (remotePath) => {
-	const { entries } = await fsp.listRevisions(remotePath)
-	const entry = entries[1] // [0] is the revision of the file that contains 'content'. Look at the one before that
+//TODO: Refactor this (and everything from file-delete-utils into Integrity-Checker later)
+
+// TODO: refactor this into
+const fetchLatestRevisionID = async remotePath => {
+    const { entries } = await fsp.listRevisions(remotePath)
+    const entry = entries[1] // [0] is the revision of the file that contains 'content'. Look at the one before that
     return entry.rev
 }
 
 const checker = new IntegrityChecker({
-	fsp,
-	watchPath: dropboxClientPath,
-	predicate: verifySignature,
+    fsp,
+    watchPath: BASE_DIR,
+    predicate: verifySignature
 })
 
 checker.on(IntegrityChecker.READY, () => {
-	console.log(timestamp("ready"))
+    console.log(timestamp("ready"))
 })
 
 checker.on(IntegrityChecker.CONFLICT_FOUND, ({ remotePath }) => {
-	console.log(timestamp(`${remotePath}: conflict found.`))
+    console.log(timestamp(`${remotePath}: conflict found.`))
 })
 
 checker.on(IntegrityChecker.NO_CONFLICT, ({ remotePath }) => {
-	console.log(timestamp(`${remotePath}: No conflict.`))
+    console.log(timestamp(`${remotePath}: No conflict.`))
 })
 
 checker.on(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, ({ remotePath }) => {
-	console.log(timestamp(`${remotePath}: conflict resolution succeeded `))
+    console.log(timestamp(`${remotePath}: conflict resolution succeeded `))
 })
 
 checker.on(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, ({ remotePath, error }) => {
-	console.error(timestamp(`${remotePath}: conflict resolution failed. Error: ${error}`))
+    console.error(timestamp(`${remotePath}: conflict resolution failed. Error: ${error}`))
 })
 
 checker.on(IntegrityChecker.CHANGE, ({ remotePath, eventType }) => {
-	console.log(timestamp(`${remotePath}: detected '${eventType}'`))
+    console.log(timestamp(`${remotePath}: detected '${eventType}'`))
 })
 
 checker.on(IntegrityChecker.EQUIVALENT_CONFLICT_IS_PENDING, ({ remotePath }) => {
-	console.log(timestamp(`${remotePath}: equivalent conflict is already pending on job queue`))
+    console.log(timestamp(`${remotePath}: equivalent conflict is already pending on job queue`))
 })
 
 beforeShutdown(() => {
-	console.log(timestamp(`shutdown integrity-daemon`))
+    console.log(timestamp(`shutdown integrity-daemon`))
 })
 
 function timestamp(msg) {
-	const format = { ...DateTime.TIME_24_WITH_SECONDS, ...DateTime.DATE_SHORT }
-	return `[${DateTime.now().toLocaleString(format)}] ${msg}`
+    const format = { ...DateTime.TIME_24_WITH_SECONDS, ...DateTime.DATE_SHORT }
+    return `[${DateTime.now().toLocaleString(format)}] ${msg}`
 }
-
-;(async () => {
-	await kr.addCapability({
-		type: "verify",
-		key: "54cebd9c7462d6aab282f8cb2b57feef9cc5082450cfb36f76117cefa84143da",
-		path: testfilename,
-	})
-
-	console.log(timestamp(`start integrity-daemon`))
-})()

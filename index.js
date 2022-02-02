@@ -6,7 +6,7 @@ const { FuseHandlers } = require("./fuse/fuse-crypto-handlers")
 const KeyRing = require("./key-management/keyring")
 const { LOCAL_KEYRING_PATH } = require("./key-management/config")
 
-const BASE_DIR = resolve("./fsp")
+const BASE_DIR = "/Users/jakoboffersen/Dropbox"
 const MOUNT_DIR = resolve("./mnt")
 const keyRing = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR)
 const handlers = new FuseHandlers(BASE_DIR, keyRing, { debug: false })

@@ -1,4 +1,5 @@
-const crypto = require('./crypto')
+const crypto = require("./crypto")
+const fsFns = require("./fsFns")
 
 const FILE_DELETE_PREFIX_BUFFER = Buffer.from("2E96CNuTm63uwUlvjSWiXaOtU8xk48qh0Gjz83sf")
 /**
@@ -15,12 +16,22 @@ function createDeleteFileContent(rev, writekey) {
 
 /**
  *
- * @param {Buffer} content The content of the file 
+ * @param {Buffer} content The content of the file
  * @returns true iff 'content' is marked as a delete-operation (e.g made by 'createDeleteFileContent') else false
  */
-function contentIsMarkedAsDeleted(content) {
-    const prefix = content.subarray(0, FILE_DELETE_PREFIX_BUFFER.length)
-    return Buffer.compare(prefix, FILE_DELETE_PREFIX_BUFFER) === 0
+async function fileAtPathMarkedAsDeleted(localPath) {
+    try {
+        console.log(`\tfileAtPathMarkedAsDeleted ${localPath}`)
+        const fd = await fsFns.open(localPath, "r")
+        const prefix = Buffer.alloc(FILE_DELETE_PREFIX_BUFFER.length)
+
+        await fsFns.read(fd, prefix, 0, FILE_DELETE_PREFIX_BUFFER.length, 0)
+        console.log(`\tfileAtPathMarkedAsDeleted ${prefix.subarray(0, 5).toString("hex")}`)
+        return Buffer.compare(prefix, FILE_DELETE_PREFIX_BUFFER) === 0
+    } catch (error) {
+        // file does not exist and is hence not marked as deleted, as the mark is inside a file. We require a deleted file to be marked as deleted
+        return false
+    }
 }
 
 /**
@@ -36,13 +47,13 @@ function verifyDeleteFileContent(content, verifyKey, expectedRevisionID) {
     try {
         const { verified, message } = crypto.verifyCombined(signedMessage, verifyKey)
         return verified && Buffer.compare(message, Buffer.from(expectedRevisionID)) === 0 // .compare returns 0 iff the two buffers are equal
-    } catch  {
+    } catch {
         return false
     }
 }
 
 module.exports = {
-    contentIsMarkedAsDeleted,
+    fileAtPathMarkedAsDeleted,
     createDeleteFileContent,
-    verifyDeleteFileContent,
+    verifyDeleteFileContent
 }

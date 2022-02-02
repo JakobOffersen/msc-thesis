@@ -8,7 +8,16 @@
         {
             "type": "pwa-node",
             "request": "launch",
-            "name": "Launch Program",
+            "name": "Launch Daemon",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "./daemons/integrity-daemon.js"
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "Launch FUSE",
             "skipFiles": [
                 "<node_internals>/**"
             ],
