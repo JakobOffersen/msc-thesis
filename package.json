@@ -12,7 +12,9 @@
   "dependencies": {
     "async": "^3.2.2",
     "chokidar": "^3.5.2",
+    "debounce": "^1.2.1",
     "dropbox": "^10.15.0",
+    "fd-lock": "^1.2.0",
     "fs-xattr": "^0.3.1",
     "fuse-native": "agisboye/fuse-native#fix",
     "luxon": "^2.1.1",

@@ -100,16 +100,21 @@ function signCombined(message, sk) {
 }
 
 function verifyCombined(signedMessage, pk) {
-    let message = Buffer.alloc(signedMessage.length - sodium.crypto_sign_BYTES)
-    const verified = sodium.crypto_sign_open(message, signedMessage, pk)
-    return { verified, message: verified ? message : null }
+    try {
+        let message = Buffer.alloc(signedMessage.length - sodium.crypto_sign_BYTES)
+        const verified = sodium.crypto_sign_open(message, signedMessage, pk)
+        return { verified, message: verified ? message : null }
+    } catch {
+        // 'crypto_sign_open' throws an error if the inputs are of the wrong size.
+        return { verified: false, message : null }
+    }
 }
 
 function verifyDetached(signature, message, pk) {
     try {
         return sodium.crypto_sign_verify_detached(signature, message, pk)
     } catch (error) {
-        return false // 'crypto_sign_verify_detached' throws an error if the inputs are of wrong size. 
+        return false // 'crypto_sign_verify_detached' throws an error if the inputs are of wrong size.
     }
 
 }

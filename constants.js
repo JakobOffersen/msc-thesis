@@ -14,11 +14,12 @@ const CAPABILITY_TYPE_WRITE = "write"
 const CAPABILITY_TYPE_VERIFY = "verify"
 
 const LOCAL_KEYRING_PATH = join(__dirname, "key-management", "local.keyring")
-const BASE_DIR_DROPBOX = "/Users/jakoboffersen/Dropbox"
-const BASE_DIR_LOCAL = resolve("./fsp")
+const BASE_DIR = "/Users/jakoboffersen/Dropbox" // resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")
 
 const FSP_ACCESS_TOKEN = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
+
+const FILE_DELETE_PREFIX_BUFFER = Buffer.from("2E96CNuTm63uwUlvjSWiXaOtU8xk48qh0Gjz83sf")
 
 module.exports = {
     STREAM_CHUNK_SIZE,
@@ -30,8 +31,8 @@ module.exports = {
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_VERIFY,
     LOCAL_KEYRING_PATH,
-    BASE_DIR_DROPBOX,
-    BASE_DIR_LOCAL,
+    BASE_DIR,
     MOUNT_DIR,
-    FSP_ACCESS_TOKEN
+    FSP_ACCESS_TOKEN,
+    FILE_DELETE_PREFIX_BUFFER,
 }

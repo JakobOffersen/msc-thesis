@@ -5,6 +5,7 @@ const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
 const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("./file-handle")
 const HandleHolder = require("./handle-holder")
+const lock = require("fd-lock")
 
 class FSError extends Error {
     constructor(code) {
@@ -13,9 +14,7 @@ class FSError extends Error {
     }
 }
 function ignored(path) {
-    const ignore = basename(path).startsWith(".")
-    //if (ignore) console.log(`ignored ${path}`)
-    return ignore
+    return basename(path).startsWith(".")
 }
 /**
  * Computes the size of a plaintext message based on the size of the ciphertext.
@@ -155,7 +154,6 @@ class FuseHandlers {
 
     async open(path, flags) {
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
-
         if (this.debug) console.log(`open ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
@@ -197,12 +195,20 @@ class FuseHandlers {
         if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
         if (this.debug) console.log(`write ${path} len ${length} pos ${position}`)
         const handle = this.handles.get(fd)
-        const bytesWritten = await handle.write(buffer, length, position)
-        if (this.debug) console.log(`\tbytes written ${bytesWritten}`)
-        await handle.prependSignature()
-        if (this.debug) console.log(`\tprepended signature`)
 
-        return bytesWritten
+        // We lock the file to ensure no other process (e.g. the daemon) interacts with the
+        // file in the time-frame between writing the content and writing the signature
+        lock(fd)
+        try {
+            const bytesWritten = await handle.write(buffer, length, position)
+            if (this.debug) console.log(`\tbytes written ${bytesWritten}`)
+            await handle.prependSignature()
+            if (this.debug) console.log(`\tprepended signature`)
+            return bytesWritten
+        } finally {
+            // we unlock the file in a 'finally' block to ensure that the file is unlocked even if an error is thrown.
+            lock.unlock(fd)
+        }
     }
 
     // Create and open file

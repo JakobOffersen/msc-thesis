@@ -4,10 +4,17 @@ const EventEmitter = require("events")
 const fs = require("fs/promises")
 const { createReadStream } = require("fs")
 const queue = require("async/queue")
-const { relative } = require("path")
+const { relative, basename, dirname } = require("path")
 const { Dropbox } = require("dropbox")
 const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
+const sodium = require("sodium-native")
+const { FILE_DELETE_PREFIX_BUFFER } = require("../constants")
+const { verifyCombined, verifyDetached } = require("../crypto")
+const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
+const { createHash } = require("crypto")
+const { STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE, SIGNATURE_MARK } = require("../constants")
+const debounce = require("debounce")
 
 /// IntegrityChecker reacts to changes on 'watchPatch' (intended to be the dropbox-client)
 /// and verifies each change against 'predicate'.
@@ -30,34 +37,16 @@ class IntegrityChecker extends EventEmitter {
         this._watchPath = watchPath
         this._keyring = keyring
 
-        // We use a job-queue for the rollback-jobs.
-        // Jobs are 'push'ed onto the queue and handled by a single worker.
-        // The worker (the callback below) restores the invalid file to its latest valid state
-        this._jobQueue = queue(async job => {
-            // Performance optimization: If an equivalent job is already pending,
-            // then it will perform the rollback that this job requests.
-            // Thus this job is reduntant and we can mark it as completed prematurely.
-            // This is purely a performance optimization.
-            if (this._equivalentJobIsPending(job)) {
-                this.emit(EQUIVALENT_CONFLICT_IS_PENDING, job)
-            }
-
-            const didPerformRollback = await this._performFileRestoreIfNecessary(job)
-            if (didPerformRollback) {
-                this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
-            } else {
-                this.emit(IntegrityChecker.NO_CONFLICT, job)
-            }
-        })
-
-        // This is called if any worker fails (e.g throws an error)
-        this._jobQueue.error((error, job) => {
-            this.emit(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, { error, ...job })
-        })
-
         // setup watcher
         this._watcher = chokidar.watch(watchPath, {
-            ignored: /(^|[\/\\])\../, // ignore dotfiles
+            ignored: function (path) {
+                // ignore dot-files and ephemeral files creates by the system
+                return (
+                    path.match(/(^|[\/\\])\../) ||
+                    basename(dirname(path)).split(".").length > 2 || // (eg "file3.txt.sb-ab52335b-BlLaP1/file3.txt")
+                    basename(path).split(".").length > 2 // "/milky-way-nasa.jpg.sb-ab52335b-jqZvPa/milky-way-nasa.jpg.sb-ab52335b-j7X3TY"
+                )
+            },
             persistent: true // indicates that chokidar should continue the process as long as files are watched
         })
         // Chokiar emits 'add' for all existing files in the watched directory
@@ -69,32 +58,88 @@ class IntegrityChecker extends EventEmitter {
             this._watcher.on("unlink", this._onUnlink.bind(this))
             this.emit(IntegrityChecker.READY)
         })
+
+        // We use a job-queue for the rollback-jobs.
+        // Jobs are 'push'ed onto the queue and handled by a single worker.
+        // The worker (the callback below) restores the invalid file to its latest valid state
+        this._jobQueue = queue(async job => {
+            // Performance optimization: If an equivalent job is already pending,
+            // then it will perform the rollback that this job requests.
+            // Thus this job is reduntant and we can mark it as completed prematurely.
+            // This is purely a performance optimization.
+            if (this._equivalentJobIsPending(job)) return this.emit(IntegrityChecker.EQUIVALENT_CONFLICT_IS_PENDING, job)
+
+            const verified = await this._verify(job)
+
+            if (verified) return this.emit(IntegrityChecker.NO_CONFLICT, job)
+
+            this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+
+            await this._rollback(job)
+
+            this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+        })
+
+        // This is called if any worker fails (e.g throws an error)
+        this._jobQueue.error((error, job) => {
+            this.emit(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, { error, ...job })
+        })
+
+        this.debouncers = new Map() // maps from localPath to debouce
     }
 
     async stopWatching() {
         await this._watcher.close()
     }
 
-    async _verifyFile({ localPath, remotePath }) {
+    async _verify({ localPath, remotePath }) {
         const verifyCapability = await this._keyring.getCapabilityWithPathAndType(remotePath, "verify")
         if (!verifyCapability) return true // we accept files we cannot check.
 
-        const contentHash = await contentHash(localPath)
+        try {
+            const hasDeleteMark = await fileAtPathMarkedAsDeleted(localPath) // throws if the file does not exist
 
-        if (await fileAtPathMarkedAsDeleted(localPath)) {
-            const latestRevisionID = await fetchLatestRevisionID(remotePath)
-            const verified = verifyDeleteFileContent(content, verifyCapability.key, latestRevisionID)
-            console.log(timestamp(`${remotePath}: marked as deleted. Verified: ${verified}`))
-            return verified
-        } else {
-            // is a regular write-operation: verify the signature
-            // compute the hash from the macs in all chunks
-            const macHash = await macHash(localPath)
+            if (hasDeleteMark) {
+                // A valid delete follows the schema:
+                //      <delete-prefix><signature(revisionID)>
+                // where 'revisionID' denotes the latest revision ID of the file before it was marked as deleted
+                // Thus we accept the file-delete iff
+                // 1) the prefix is present and correct AND (which is checked by 'fileAtPathMarkedAsDeleted')
+                // 2) the signature is present and correct AND
+                // 3) the signed message is the revision ID of the file just before the file marked as deleted
 
-            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
-            await fsFns.read(fd, expectedSignature, 0, sodium.crypto_sign_BYTES, SIGNATURE_MARK.length)
+                // read the signature from the file
+                const content = await fs.readFile(localPath)
+                const signedMessage = content.subarray(FILE_DELETE_PREFIX_BUFFER.length)
+                const { verified, message } = verifyCombined(signedMessage, verifyCapability.key)
 
-            return verifyDetached(signature, digest, verifyCapability.key)
+                if (!verified) return false // the signature is not valid. No need to check further
+                // fetch the revisionID of the file.
+                const response = await this._db.filesListRevisions({ path: remotePath, mode: "path" })
+                const entries = response.result.entries
+                // TODO: This step is prone to a race condition in which the remote file is changed in between the local file trigger and the list of revisions we fetch above.
+                // Fix this by computing the revision ID (based on the content hash) of the current file and choosing the revision ID just after that value
+                const revisionID = entries[1].rev // entry '0' is the version of the file => entry '1' is the revision that is marked as downloaded
+
+                return Buffer.compare(message, Buffer.from(revisionID)) === 0
+            } else {
+                // is a regular write-operation: verify the signature
+                // compute the hash from the macs in all chunks
+                const macDigest = await macHash(localPath)
+                const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+                const fd = await fsFns.open(localPath, "r")
+                await fsFns.read(fd, signature, 0, signature.length, SIGNATURE_MARK.length)
+                console.log(`sig ${remotePath} ${signature.toString("hex")}`)
+                const verified = verifyDetached(signature, macDigest, verifyCapability.key)
+                return verified
+            }
+        } catch (error) {
+            // -2 : file does not exist => file must have been deleted => cannot be verified
+            if (error.errno === -2) {
+                return false
+            } else {
+                throw error
+            }
         }
     }
 
@@ -103,89 +148,62 @@ class IntegrityChecker extends EventEmitter {
      *
      * @param {string} localPath
      */
-    async _checkIfRollbackNeeded(localPath, opts) {
-        const remotePath = path.relative(this._watchPath, localPath)
-        const job = {
-            ...opts,
-            localPath,
-            remotePath
-        }
-
-        this.emit(IntegrityChecker.CHANGE, job)
-        const verified = await this._predicate({ localPath, remotePath })
-
-        if (verified) {
-            this.emit(IntegrityChecker.NO_CONFLICT, job)
-        } else {
-            this.emit(IntegrityChecker.CONFLICT_FOUND, job)
-            this._jobQueue.push(job)
-        }
+    async _pushJob(localPath, opts) {
+        const remotePath = "/" + path.relative(this._watchPath, localPath)
+        const job = { localPath, remotePath, ...opts }
+        this._jobQueue.push(job)
     }
 
     /**
      *
      * @param {} remotePath - the remote path of the file to restore. Is optional if 'localPath' is present
      * @param {} localPath - the local path of the file to restore. Is optional if 'remotePath' is present
-     * @returns {Promise<boolean>} Resolves with 'true' to indicate a successful restore was performed.
-     * Resolves with 'false' to indicate a restore was not necessary
-     * Rejects with error if none of the revisions satisfy the predicate or if a read/write/download error occur.
      */
-    async _performFileRestoreIfNecessary({ remotePath }) {
-        const localPath = path.join(this._watchPath, remotePath)
+    async _rollback({ localPath, remotePath }) {
+        const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+        const entries = response.result.entries
 
-        // check if the file has been changed since the rollback was scheduled to avoid to make an unnecessary restore
-        if (await this.isLocalContentVerified({ localPath })) return false // conflict already resolved by FSP-client. Mark no conflict is needed
-
-        const { entries: revisions } = await this._fsp.listRevisions(remotePath)
-
-        for (const revision of revisions) {
-            if (await this.isLocalContentVerified({ localPath })) return false // conflict already resolved by FSP-client. Mark no conflict is needed
-
-            const remoteContent = await this._fsp.downloadRevision(revision.rev)
-
-            //HER OPSTÅR FEJLEN. PREDICATE SKAL OGSÅ KUNNE BENYTTES PÅ 'REMOTECONTENT' - MEN HVAD HVIS 'REMOTECONTENT' ER STOR? TJEK OP
-            const verified = await this._predicate({ content: remoteContent, remotePath })
-
-            if (verified) {
-                if (await this.isLocalContentVerified({ localPath })) return false // conflict already resolved by FSP-client. Mark no conflict is needed
-
-                await this._fsp.restoreFile(remotePath, revision.rev)
-                return true // mark rollback performed successfylly
-            }
-        }
-
-        throw new Error("None of the " + revisions.length + " revisions met the predicate.")
-    }
-
-    async isLocalContentVerified({ localPath }) {
         try {
-            localContent = await fs.readFile(localPath)
-            return await this._predicate({ content: localContent, remotePath: relative(this._watchPath, localPath) })
-        } catch {
-            return false // a deleted file cannot be verified
+            const hash = await contentHash(localPath)
+
+            const revisionIndex = entries.findIndex(entry => entry.content_hash === hash) // TDOO: Handle 'undefined'. Fetch more
+            const revisionToRestoreTo = entries[revisionIndex + 1] // TDOO: Handle out of bounds. Fetch more
+
+            await this._db.filesRestore({ path: remotePath, rev: revisionToRestoreTo.rev })
+        } catch (error) {
+            if (error.errno !== -2) throw error
+            await this._db.filesRestore({ path: remotePath, rev: entries[1].rev })
         }
     }
 
-    _equivalentJobIsPending(job) {
+    _equivalentJobIsPending({ remotePath }) {
         const pendingJobs = [...this._jobQueue]
-        return pendingJobs.some(j => j.remotePath === job.remotePath)
+        return pendingJobs.some(job => job.remotePath === remotePath)
     }
 
     _onAdd(localPath) {
-        this._checkIfRollbackNeeded(localPath, { eventType: "add" })
+        this._debouncePushJob(localPath, { eventType: "add" })
     }
 
     _onChange(localPath) {
-        this._checkIfRollbackNeeded(localPath, { eventType: "change" })
+        this._debouncePushJob(localPath, { eventType: "change" })
     }
 
     _onUnlink(localPath) {
-        this._checkIfRollbackNeeded(localPath, { eventType: "unlink" })
+        this._debouncePushJob(localPath, { eventType: "unlink" })
+    }
+
+    _debouncePushJob(...args) {
+        const localPath = args[0]
+        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 4000))
+        const debounced = this.debouncers.get(localPath)
+        debounced(...args)
     }
 }
 
 const contentHash = async localPath => {
     return new Promise((resolve, reject) => {
+        //TODO: lock while hashing?
         const hasher = dch.create()
         const stream = createReadStream(localPath)
         stream.on("data", data => hasher.update(data))
@@ -195,9 +213,10 @@ const contentHash = async localPath => {
 }
 
 const macHash = async localPath => {
+    //TODO: Lock while reading macs?
     const hash = createHash("sha256")
     const fd = await fsFns.open(localPath, "r")
-    const size = (await fsFns.fstat(fd)).size
+    const size = (await fsFns.fstat(fd)).size - TOTAL_SIGNATURE_SIZE
 
     const chunkCount = Math.ceil(size / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
     const offset = TOTAL_SIGNATURE_SIZE + sodium.crypto_secretbox_NONCEBYTES
@@ -209,7 +228,7 @@ const macHash = async localPath => {
         hash.update(mac)
     }
 
-    return hash.digest("hex")
+    return Buffer.from(hash.digest("hex"), "hex")
 }
 
 module.exports = IntegrityChecker

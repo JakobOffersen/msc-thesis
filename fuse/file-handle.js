@@ -11,6 +11,7 @@ const {
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_VERIFY
 } = require("../constants")
+const { basename } = require("path")
 
 class FileHandle {
     /**
@@ -172,22 +173,22 @@ class FileHandle {
             this.shouldHashExistingMACs = false
 
             const macs = await this.#readMACs()
-
             for (const mac of macs) {
-                hash.update(mac)
+                this.hash.update(mac)
             }
         }
 
         const hash = Buffer.from(this.hash.copy().digest("hex"), "hex") // We digest a copy to continue rolling the hash for the next writes
         const signature = signDetached(hash, this.writeCapability.key)
         const combined = Buffer.concat([SIGNATURE_MARK, signature])
+        // console.log(`sig ${basename(this.path)} ${signature.toString("hex")}`)
         await this.#prepend(combined)
     }
 
     async #readMACs() {
         // we make a new fd to ensure it is allowed to read ("r")
         const fd = await fsFns.open(this.path, "r")
-        const fileSize = (await fsFns.fstat(fd)).size
+        const fileSize = (await fsFns.fstat(fd)).size - TOTAL_SIGNATURE_SIZE
         const res = []
 
         const chunkCount = Math.ceil(fileSize / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
@@ -199,6 +200,7 @@ class FileHandle {
             await fsFns.read(fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
             res.push(mac)
         }
+
         return res
     }
 

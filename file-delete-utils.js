@@ -1,7 +1,6 @@
 const crypto = require("./crypto")
 const fsFns = require("./fsFns")
-
-const FILE_DELETE_PREFIX_BUFFER = Buffer.from("2E96CNuTm63uwUlvjSWiXaOtU8xk48qh0Gjz83sf")
+const { FILE_DELETE_PREFIX_BUFFER } = require("./constants")
 /**
  *
  * @param {FileMetaData} fileMetaData The metadata for the file to be marked as deleted
@@ -20,16 +19,17 @@ function createDeleteFileContent(rev, writekey) {
  * @returns true iff 'content' is marked as a delete-operation (e.g made by 'createDeleteFileContent')
  */
 async function fileAtPathMarkedAsDeleted(localPath) {
+    let fd
     try {
         const prefix = Buffer.alloc(FILE_DELETE_PREFIX_BUFFER.length)
 
-        const fd = await fsFns.open(localPath, "r")
+        fd = await fsFns.open(localPath, "r")
         await fsFns.read(fd, prefix, 0, FILE_DELETE_PREFIX_BUFFER.length, 0)
 
         return Buffer.compare(prefix, FILE_DELETE_PREFIX_BUFFER) === 0
-    } catch (error) {
-        // file does not exist and is hence not marked as deleted, as the mark is inside a file. We require a deleted file to be marked as deleted
-        return false
+    } catch {
+    } finally {
+        if (!!fd) await fsFns.close(fd)
     }
 }
 
