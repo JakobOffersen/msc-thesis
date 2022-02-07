@@ -129,8 +129,8 @@ class IntegrityChecker extends EventEmitter {
                 const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
                 const fd = await fsFns.open(localPath, "r")
                 await fsFns.read(fd, signature, 0, signature.length, SIGNATURE_MARK.length)
-                console.log(`sig ${remotePath} ${signature.toString("hex")}`)
                 const verified = verifyDetached(signature, macDigest, verifyCapability.key)
+
                 return verified
             }
         } catch (error) {
@@ -163,11 +163,16 @@ class IntegrityChecker extends EventEmitter {
         const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
         const entries = response.result.entries
 
+        console.log(`revisions ${localPath}`)
+        entries.forEach(e => console.log(`\t${e.rev}`))
+        console.log("-----")
+
         try {
             const hash = await contentHash(localPath)
 
             const revisionIndex = entries.findIndex(entry => entry.content_hash === hash) // TDOO: Handle 'undefined'. Fetch more
             const revisionToRestoreTo = entries[revisionIndex + 1] // TDOO: Handle out of bounds. Fetch more
+            console.log(`revision Index: ${revisionIndex}`)
 
             await this._db.filesRestore({ path: remotePath, rev: revisionToRestoreTo.rev })
         } catch (error) {

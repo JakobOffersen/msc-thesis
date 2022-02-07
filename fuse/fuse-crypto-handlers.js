@@ -1,5 +1,5 @@
 const fs = require("fs/promises")
-const { join, basename } = require("path")
+const { join, basename, dirname } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
@@ -110,6 +110,7 @@ class FuseHandlers {
         if (this.debug) console.log(`truncate ${path} size ${size}`)
         const fullPath = this.#resolvedPath(path)
         fsFns.truncate(fullPath, size + TOTAL_SIGNATURE_SIZE)
+        //TODO: her skal vi skrive igen for at signaturen passer
     }
 
     async ftruncate(path, fd, size) {
@@ -219,7 +220,14 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
-        const capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
+        const parentName = basename(dirname(path)) // for 'x/y/z.txt' this returns 'y'
+        const cleanedBasename = basename(path).split(".").slice(0, 2).join(".") // remove potential suffixes starting with "." Eg "/picture.jpg.sb-ab52335b-nePMlX" becomes "picture.jpg"
+        let capabilities
+        if (parentName.startsWith(cleanedBasename)) {
+            capabilities = await this.keyRing.getCapabilitiesWithRelativePath("/" + cleanedBasename)
+        } else {
+            capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
+        }
 
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
         await filehandle.prependSignature()
