@@ -6,6 +6,11 @@ const Fuse = require("fuse-native")
 const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("./file-handle")
 const HandleHolder = require("./handle-holder")
 const lock = require("fd-lock")
+const { Dropbox } = require("dropbox") // TODO: Refactor out
+const { FSP_ACCESS_TOKEN, CAPABILITY_TYPE_WRITE } = require("../constants.js")
+const { createDeleteFileContent } = require("../file-delete-utils.js")
+const { createReadStream } = require("fs")
+const dch = require("../dropbox-content-hasher")
 
 class FSError extends Error {
     constructor(code) {
@@ -241,7 +246,28 @@ class FuseHandlers {
     }
 
     async unlink(path) {
-        await fs.unlink(this.#resolvedPath(path))
+        const fullPath = this.#resolvedPath(path)
+        if (ignored(path)) return await fs.unlink(fullPath)
+
+        console.log(`unlink ${path}`)
+        const contentHash = await dropboxContentHash(fullPath)
+        console.log(`\tcontent hash: ${contentHash}`)
+        //TODO: refactor this
+        const writeCapability = await this.keyRing.getCapabilityWithPathAndType(path, CAPABILITY_TYPE_WRITE)
+        console.log(`\twrite key ${writeCapability.key.toString("hex")}`)
+        if (!writeCapability) throw new Error("unlink failed")
+        const db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
+        const response = await db.filesListRevisions({ path: path, mode: "path", limit: 1 })
+
+        let revisionIndex = response.result.entries.findIndex(entry => entry.content_hash === contentHash)
+        console.log(`\trevision index ${revisionIndex}`)
+        revisionIndex = revisionIndex === -1 ? 0 : revisionIndex
+
+        const revisionID = response.result.entries[revisionIndex].rev
+        const content = createDeleteFileContent(revisionID, writeCapability.key)
+        console.log(`\t content ${content.toString("hex")}`)
+        const fd = await fsFns.open(fullPath, "w")
+        await fsFns.write(fd, content, 0, content.length, 0)
     }
 
     async rename(src, dest) {
@@ -263,6 +289,18 @@ class FuseHandlers {
     async rmdir(path) {
         return fs.rmdir(this.#resolvedPath(path))
     }
+}
+
+// TODO: Refactor this and the same function in integrity-checker into own module
+const dropboxContentHash = async localPath => {
+    return new Promise((resolve, reject) => {
+        //TODO: lock while hashing?
+        const hasher = dch.create()
+        const stream = createReadStream(localPath)
+        stream.on("data", data => hasher.update(data))
+        stream.on("end", () => resolve(hasher.digest("hex")))
+        stream.on("error", err => reject(err))
+    })
 }
 
 module.exports = {
