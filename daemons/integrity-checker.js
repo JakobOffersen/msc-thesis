@@ -4,14 +4,14 @@ const EventEmitter = require("events")
 const fs = require("fs/promises")
 const { createReadStream } = require("fs")
 const queue = require("async/queue")
-const { relative, basename, dirname } = require("path")
+const { relative, basename, dirname, extname } = require("path")
 const { Dropbox } = require("dropbox")
 const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
 const { FILE_DELETE_PREFIX_BUFFER } = require("../constants")
 const { verifyCombined, verifyDetached } = require("../crypto")
-const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
+const { fileAtPathMarkedAsDeleted, markFilenameAsDeleted } = require("../file-delete-utils")
 const { createHash } = require("crypto")
 const { STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE, SIGNATURE_MARK } = require("../constants")
 const debounce = require("debounce")
@@ -43,8 +43,8 @@ class IntegrityChecker extends EventEmitter {
                 // ignore dot-files and ephemeral files creates by the system
                 return (
                     path.match(/(^|[\/\\])\../) ||
-                    basename(dirname(path)).split(".").length > 2 || // (eg "file3.txt.sb-ab52335b-BlLaP1/file3.txt")
-                    basename(path).split(".").length > 2 // "/milky-way-nasa.jpg.sb-ab52335b-jqZvPa/milky-way-nasa.jpg.sb-ab52335b-j7X3TY"
+                    basename(dirname(path)).split(".").length > 2 || // eg "file3.txt.sb-ab52335b-BlLaP1/file3.txt"
+                    (basename(path).split(".").length > 2 && extname(path) !== ".deleted") // eg "/milky-way-nasa.jpg.sb-ab52335b-jqZvPa/milky-way-nasa.jpg.sb-ab52335b-j7X3TY"
                 )
             },
             persistent: true // indicates that chokidar should continue the process as long as files are watched
@@ -93,6 +93,7 @@ class IntegrityChecker extends EventEmitter {
     }
 
     async _verify({ localPath, remotePath }) {
+        if (extname(localPath) === ".deleted") localPath = localPath.replace(".deleted", "")
         const verifyCapability = await this._keyring.getCapabilityWithPathAndType(remotePath, "verify")
         if (!verifyCapability) return true // we accept files we cannot check.
 
@@ -109,6 +110,7 @@ class IntegrityChecker extends EventEmitter {
                 // 3) the signed message is the revision ID of the file just before the file marked as deleted
 
                 // read the signature from the file
+                localPath = markFilenameAsDeleted(localPath)
                 const content = await fs.readFile(localPath)
                 const signedMessage = content.subarray(FILE_DELETE_PREFIX_BUFFER.length)
                 const { verified, message } = verifyCombined(signedMessage, verifyCapability.key)
@@ -121,7 +123,7 @@ class IntegrityChecker extends EventEmitter {
                 // Fix this by computing the revision ID (based on the content hash) of the current file and choosing the revision ID just after that value
                 const revisionID = entries[1].rev // entry '0' is the version of the file => entry '1' is the revision that is marked as downloaded
 
-                return Buffer.compare(message, Buffer.from(revisionID)) === 0
+                return Buffer.compare(message, Buffer.from(revisionID, "hex")) === 0
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash from the macs in all chunks
@@ -200,7 +202,7 @@ class IntegrityChecker extends EventEmitter {
 
     _debouncePushJob(...args) {
         const localPath = args[0]
-        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 4000))
+        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 1000))
         const debounced = this.debouncers.get(localPath)
         debounced(...args)
     }

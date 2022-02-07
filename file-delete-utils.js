@@ -1,16 +1,35 @@
 const crypto = require("./crypto")
 const fsFns = require("./fsFns")
-const { FILE_DELETE_PREFIX_BUFFER } = require("./constants")
+const { FILE_DELETE_PREFIX_BUFFER, FSP_ACCESS_TOKEN } = require("./constants")
+const { Dropbox } = require("dropbox")
+const dch = require("./dropbox-content-hasher")
+const { createReadStream } = require("fs")
+const { dirname, basename, join, extname } = require("path")
+
+const db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
+
 /**
  *
  * @param {FileMetaData} fileMetaData The metadata for the file to be marked as deleted
  * @param {Buffer} writekey The write key used to sign the mark
  * @returns {Buffer} the content of the file about to be deleted
  */
-function createDeleteFileContent(rev, writekey) {
-    rev = Buffer.from(rev)
-    const sig = crypto.signCombined(rev, writekey) // note this returns the signature combined with the message
+async function createDeleteFileContent({ writeKey, localPath, remotePath }) {
+    const revisionID = await fetchRevisionForPath({ remotePath, localPath })
+    const sig = crypto.signCombined(Buffer.from(revisionID, "hex"), writeKey) // note this returns the signature combined with the message
     return Buffer.concat([FILE_DELETE_PREFIX_BUFFER, sig]) // prepend the file-delete marker
+}
+
+async function fetchRevisionForPath({ remotePath, localPath }) {
+    const contentHash = await dropboxContentHash(localPath)
+
+    const response = await db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+
+    let revisionIndex = response.result.entries.findIndex(entry => entry.content_hash === contentHash)
+
+    if (revisionIndex === -1) revisionIndex = 0 // default to the first revision.
+
+    return response.result.entries[revisionIndex].rev
 }
 
 /**
@@ -19,6 +38,7 @@ function createDeleteFileContent(rev, writekey) {
  * @returns true iff 'content' is marked as a delete-operation (e.g made by 'createDeleteFileContent')
  */
 async function fileAtPathMarkedAsDeleted(localPath) {
+    if (extname(localPath) !== ".deleted") localPath = markFilenameAsDeleted(localPath)
     let fd
     try {
         const prefix = Buffer.alloc(FILE_DELETE_PREFIX_BUFFER.length)
@@ -28,9 +48,17 @@ async function fileAtPathMarkedAsDeleted(localPath) {
 
         return Buffer.compare(prefix, FILE_DELETE_PREFIX_BUFFER) === 0
     } catch {
+        return false // if the file does not exist, it cannot be marked as deleted
     } finally {
         if (!!fd) await fsFns.close(fd)
     }
+}
+
+//TODO: Refactor til eget modul sammen med samme funktion i fuse-crypto-handlers
+function markFilenameAsDeleted(fullpath) {
+    const parent = dirname(fullpath)
+    const filename = basename(fullpath)
+    return join(parent, filename + ".deleted")
 }
 
 /**
@@ -51,8 +79,21 @@ function verifyDeleteFileContent(content, verifyKey, expectedRevisionID) {
     }
 }
 
+// TODO: Refactor this and the same function in integrity-checker into own module
+const dropboxContentHash = async localPath => {
+    return new Promise((resolve, reject) => {
+        //TODO: lock while hashing?
+        const hasher = dch.create()
+        const stream = createReadStream(localPath)
+        stream.on("data", data => hasher.update(data))
+        stream.on("end", () => resolve(hasher.digest("hex")))
+        stream.on("error", err => reject(err))
+    })
+}
+
 module.exports = {
     fileAtPathMarkedAsDeleted,
     createDeleteFileContent,
-    verifyDeleteFileContent
+    verifyDeleteFileContent,
+    markFilenameAsDeleted
 }
