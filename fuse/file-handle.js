@@ -156,9 +156,7 @@ class FileHandle {
             sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
 
             // update hash used for signature
-            // Match is prepended to ciphertext: https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox
-            const mac = ciphertext.subarray(0, sodium.crypto_secretbox_MACBYTES)
-            this.hash.update(mac)
+            this.hash.update(out)
             // Write nonce and ciphertext
             await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
 
@@ -173,9 +171,21 @@ class FileHandle {
         if (this.shouldHashExistingMACs) {
             this.shouldHashExistingMACs = false
 
-            const macs = await this.#readMACs()
-            for (const mac of macs) {
-                this.hash.update(mac)
+            // Compute hash of entire file except the signature in the
+            // same block size as they were written.
+            const fd = await fsFns.open(this.path, "r") // we make a new fd to ensure it is allowed to read ("r")
+            const cipherSize = (await fsFns.fstat(fd)).size - TOTAL_SIGNATURE_SIZE
+            const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
+            const offset = TOTAL_SIGNATURE_SIZE
+
+            const read = 0
+            for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+                const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
+                const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
+                const block = Buffer.alloc(blockSize)
+                await fsFns.read(fd, block, 0, block.length, start)
+                this.hash.update(block)
+                read += blockSize
             }
         }
 
@@ -184,25 +194,6 @@ class FileHandle {
         const combined = Buffer.concat([SIGNATURE_MARK, signature])
         // console.log(`sig ${basename(this.path)} ${signature.toString("hex")}`)
         await this.#prepend(combined)
-    }
-
-    async #readMACs() {
-        // we make a new fd to ensure it is allowed to read ("r")
-        const fd = await fsFns.open(this.path, "r")
-        const fileSize = (await fsFns.fstat(fd)).size - TOTAL_SIGNATURE_SIZE
-        const res = []
-
-        const chunkCount = Math.ceil(fileSize / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
-        const offset = TOTAL_SIGNATURE_SIZE + sodium.crypto_secretbox_NONCEBYTES
-
-        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
-            const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
-            const mac = Buffer.alloc(sodium.crypto_secretbox_MACBYTES)
-            await fsFns.read(fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
-            res.push(mac)
-        }
-
-        return res
     }
 
     async #prepend(content) {

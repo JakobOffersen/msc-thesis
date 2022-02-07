@@ -125,11 +125,11 @@ class IntegrityChecker extends EventEmitter {
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash from the macs in all chunks
-                const macDigest = await macHash(localPath)
+                const hash = await cipherHash(localPath)
                 const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
                 const fd = await fsFns.open(localPath, "r")
                 await fsFns.read(fd, signature, 0, signature.length, SIGNATURE_MARK.length)
-                const verified = verifyDetached(signature, macDigest, verifyCapability.key)
+                const verified = verifyDetached(signature, hash, verifyCapability.key)
 
                 return verified
             }
@@ -168,7 +168,7 @@ class IntegrityChecker extends EventEmitter {
         console.log("-----")
 
         try {
-            const hash = await contentHash(localPath)
+            const hash = await dropboxContentHash(localPath)
 
             const revisionIndex = entries.findIndex(entry => entry.content_hash === hash) // TDOO: Handle 'undefined'. Fetch more
             const revisionToRestoreTo = entries[revisionIndex + 1] // TDOO: Handle out of bounds. Fetch more
@@ -206,7 +206,9 @@ class IntegrityChecker extends EventEmitter {
     }
 }
 
-const contentHash = async localPath => {
+// A hash of the entire file content computed in the same way that Dropbox
+// computes their 'content_hash'.
+const dropboxContentHash = async localPath => {
     return new Promise((resolve, reject) => {
         //TODO: lock while hashing?
         const hasher = dch.create()
@@ -217,20 +219,26 @@ const contentHash = async localPath => {
     })
 }
 
-const macHash = async localPath => {
+// A hash of the content computed in the same way that we compute the hash if FUSE
+const cipherHash = async localPath => {
     //TODO: Lock while reading macs?
     const hash = createHash("sha256")
     const fd = await fsFns.open(localPath, "r")
-    const size = (await fsFns.fstat(fd)).size - TOTAL_SIGNATURE_SIZE
 
-    const chunkCount = Math.ceil(size / STREAM_CIPHER_CHUNK_SIZE) // ceil to include the last (potentially) non-full chunk
-    const offset = TOTAL_SIGNATURE_SIZE + sodium.crypto_secretbox_NONCEBYTES
+    // Compute hash of entire file except the signature in the
+    // same block size as they were written.
+    const cipherSize = (await fsFns.fstat(fd)).size - TOTAL_SIGNATURE_SIZE
+    const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
+    const offset = TOTAL_SIGNATURE_SIZE
 
+    let read = 0
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
         const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
-        const mac = Buffer.alloc(sodium.crypto_secretbox_MACBYTES)
-        await fsFns.read(fd, mac, 0, sodium.crypto_secretbox_MACBYTES, start)
-        hash.update(mac)
+        const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
+        const block = Buffer.alloc(blockSize)
+        await fsFns.read(fd, block, 0, block.length, start)
+        hash.update(block)
+        read += blockSize
     }
 
     return Buffer.from(hash.digest("hex"), "hex")
