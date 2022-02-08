@@ -1,6 +1,11 @@
 const fs = require("fs/promises")
+const { Dropbox } = require("dropbox")
+const { FSP_ACCESS_TOKEN } = require("./constants")
 
-const path = "/Users/jakoboffersen/Dropbox/half-mb.txt.deleted"
-fs.readFile(path).then(content => {
-    //console.dir(content, "hex", { maxArrayLength: null })
+const db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
+const basedir = "Users/jakoboffersen/Dropbox"
+const path = "/half-mb.txt.deleted"
+
+db.filesListRevisions({ path, mode: "path", limit: 10}).then(response => {
+    response.result.entries.forEach(entry => console.log(entry.rev))
 })

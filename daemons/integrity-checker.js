@@ -120,8 +120,8 @@ class IntegrityChecker extends EventEmitter {
 
                 if (!verified) return false // the signature is not valid. No need to check further
 
-                const revisionBeforeCurrentRevision = await this.revisionBeforeCurrentRevision({ localPath, remotePath })
-                return Buffer.compare(message, Buffer.from(revisionBeforeCurrentRevision.rev, "hex")) === 0
+                const expectedRevision = await this.revisionBeforeCurrentRevision({ localPath, remotePath: remotePath.replace(".deleted", "") })
+                return Buffer.compare(message, Buffer.from(expectedRevision.rev, "hex")) === 0
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash from the macs in all chunks
@@ -152,7 +152,7 @@ class IntegrityChecker extends EventEmitter {
 
         if (!contentHash) contentHash = await dropboxContentHash(localPath)
 
-        const response = await this._db.filesListRevisions({ path: remotePath.replace(".deleted", ""), mode: "path" })
+        const response = await this._db.filesListRevisions({ path: remotePath, mode: "path" })
         const entries = response.result.entries
         // Find the index of the current revision. The revision used for the message must be just before the current one
         // We need this step to handle a race condition in which we fetch for revisions of the file before Dropbox
@@ -187,9 +187,10 @@ class IntegrityChecker extends EventEmitter {
      */
     async _rollback({ localPath, remotePath, eventType }) {
         if (extname(localPath) === ".deleted" && eventType === "unlink") {
+            // a '.deleted' file has been deleted
             const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
             const entries = response.result.entries
-            await this._db.filesRestore({ path: remotePath, rev: entries[1].rev })
+            await this._db.filesRestore({ path: remotePath, rev: entries[0].rev }) // a delete is not considered a revision in Dropbox. Therefore we should restore the latest version (index 0)
         } else {
             remotePath = remotePath.replace(".deleted", "")
             const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
@@ -199,12 +200,7 @@ class IntegrityChecker extends EventEmitter {
             console.log("-----")
 
             try {
-                const hash = await dropboxContentHash(localPath)
-
-                const revisionIndex = entries.findIndex(entry => entry.content_hash === hash) // TDOO: Handle 'undefined'. Fetch more
-                const revisionToRestoreTo = entries[revisionIndex + 1] // TDOO: Handle out of bounds. Fetch more
-                console.log(`revision Index: ${revisionIndex}`)
-
+                const revisionToRestoreTo = await this.revisionBeforeCurrentRevision({ localPath, remotePath })
                 await this._db.filesRestore({ path: remotePath, rev: revisionToRestoreTo.rev })
             } catch (error) {
                 if (error.errno !== -2) throw error
