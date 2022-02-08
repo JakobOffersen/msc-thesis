@@ -199,34 +199,33 @@ class IntegrityChecker extends EventEmitter {
             console.log(`_rollback .deleted && unlink: ${response.status}, remote path ${remotePath}`)
             const entries = response.result.entries
             entries.forEach(e => console.log(e.rev))
-            try {
-                const res2 = await this._db.filesRestore({ path: remotePath, rev: entries[0].rev }) // a delete is *not* considered a revision in Dropbox. Therefore we should restore the latest version (index 1)
-                console.log(`_rollback .deleted && unlink restore: ${res2.result.rev}`)
-            } catch (error) {
-                const { resolve, promise } = inversePromise()
-                setTimeout(resolve, 5000)
-                console.log("trying again")
-                await promise
-                const res2 = await this._db.filesRestore({ path: remotePath, rev: entries[0].rev }) // a delete is *not* considered a revision in Dropbox. Therefore we should restore the latest version (index 1)
-                console.log(`_rollback .deleted && unlink restore: ${res2.result.rev}`)
-            }
+            await this.fileRestore({ remotePath, rev: entries[0].rev })
         } else {
-            remotePath = remotePath.replace(".deleted", "")
-            const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
-            const entries = response.result.entries
-            console.log(`revisions ${localPath}`)
-            entries.forEach(e => console.log(`\t${e.rev}`))
-            console.log("-----")
+            remotePath = remotePath.replace(".deleted", "") // TODO: explain why we remove the extension here
 
             try {
                 const revisionToRestoreTo = await this.revisionBeforeCurrentRevision({ localPath, remotePath })
-                await this._db.filesRestore({ path: remotePath, rev: revisionToRestoreTo.rev })
+                await this.fileRestore({ remotePath, rev: revisionToRestoreTo.rev })
             } catch (error) {
                 if (error.errno !== -2) throw error
-
-                const response = await this._db.filesRestore({ path: remotePath, rev: entries[1].rev })
-                console.log(`_rollback ${response.status}`)
+                const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+                await this.fileRestore({ remotePath, rev: response.result.entries[1].rev })
             }
+        }
+    }
+
+    async fileRestore({ remotePath, rev, retries = 0 } = {}) {
+        if (retries === 10) throw new Error(`failed restoring ${remotePath}. Tried ${retries} times`)
+
+        console.log(`retoring ${remotePath}, retries: ${retries + 1}, rev: ${rev}`)
+        try {
+            const response = await this._db.filesRestore({ path: remotePath, rev: rev }) // a delete is *not* considered a revision in Dropbox. Therefore we should restore the latest version (index 1)
+            console.log(`restored ${remotePath} ${response.result.rev}`)
+        } catch {
+            const { resolve, promise } = inversePromise()
+            setTimeout(resolve, 2000)
+            await promise
+            await this.fileRestore({ remotePath, rev, retries: retries + 1 })
         }
     }
 

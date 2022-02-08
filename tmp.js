@@ -7,13 +7,17 @@ const db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
 const basedir = "/Users/jakoboffersen/Dropbox"
 const path = "half-mb.txt.deleted"
 
-fs.readFile(join(basedir, path)).then(content => {
-    db.filesListRevisions({ path: "/" + path, mode: "path" }).then(response => {
-        console.dir(content, { depth: null })
-        console.log(response.result.entries[0].rev)
-    })
-})
+// fs.readFile(join(basedir, path)).then(content => {
+//     db.filesListRevisions({ path: "/" + path, mode: "path" }).then(response => {
+//         console.dir(content, { depth: null })
+//         console.log(response.result.entries[0].rev)
+//     })
+// })
 
 // db.filesListRevisions({ path: "/" + path, mode: "path" }).then(response => {
 //     response.result.entries.forEach(e => console.log(e.rev))
 // })
+
+db.filesDownload({ path: "rev:" + "015d780afc8aac500000002530d00f0" }).then(response => {
+    console.dir(response.result)
+})
