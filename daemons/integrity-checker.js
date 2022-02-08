@@ -76,7 +76,12 @@ class IntegrityChecker extends EventEmitter {
 
             this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 
-            await this._rollback(job)
+            try {
+                await this._rollback(job)
+            } catch (error) {
+                console.trace()
+                throw error
+            }
 
             this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
         })
@@ -138,13 +143,14 @@ class IntegrityChecker extends EventEmitter {
             if (error.errno === -2) {
                 return false
             } else {
+                console.trace()
                 throw error
             }
         }
     }
 
     async revisionBeforeCurrentRevision({ localPath, remotePath, contentHash, retries = 0 } = {}) {
-        if (retries === 3) throw new Error(`Cannot compute current revision for ${remotePath}. Retries: ${retries}`)
+        if (retries === 10) throw new Error(`Cannot compute current revision for ${remotePath}. Retries: ${retries}`)
 
         // Find the index of the current revision. The revision used for the message must be just before the current one
         // We need this step to handle a race condition in which we fetch for revisions of the file before Dropbox
@@ -164,6 +170,7 @@ class IntegrityChecker extends EventEmitter {
         // FSP has not received the deleted version of the file.
         // backoff and try again
         const { promise, resolve } = inversePromise()
+        console.log(`revisionBeforeCurrentRevision retry ${retries + 1}`)
         setTimeout(resolve, 2000) // wait for two seconds
         await promise
         return this.revisionBeforeCurrentRevision({ localPath, remotePath, retries: retries + 1 })
@@ -189,8 +196,20 @@ class IntegrityChecker extends EventEmitter {
         if (extname(localPath) === ".deleted" && eventType === "unlink") {
             // a '.deleted' file has been deleted
             const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+            console.log(`_rollback .deleted && unlink: ${response.status}, remote path ${remotePath}`)
             const entries = response.result.entries
-            await this._db.filesRestore({ path: remotePath, rev: entries[0].rev }) // a delete is not considered a revision in Dropbox. Therefore we should restore the latest version (index 0)
+            entries.forEach(e => console.log(e.rev))
+            try {
+                const res2 = await this._db.filesRestore({ path: remotePath, rev: entries[0].rev }) // a delete is *not* considered a revision in Dropbox. Therefore we should restore the latest version (index 1)
+                console.log(`_rollback .deleted && unlink restore: ${res2.result.rev}`)
+            } catch (error) {
+                const { resolve, promise } = inversePromise()
+                setTimeout(resolve, 5000)
+                console.log("trying again")
+                await promise
+                const res2 = await this._db.filesRestore({ path: remotePath, rev: entries[0].rev }) // a delete is *not* considered a revision in Dropbox. Therefore we should restore the latest version (index 1)
+                console.log(`_rollback .deleted && unlink restore: ${res2.result.rev}`)
+            }
         } else {
             remotePath = remotePath.replace(".deleted", "")
             const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
@@ -204,7 +223,9 @@ class IntegrityChecker extends EventEmitter {
                 await this._db.filesRestore({ path: remotePath, rev: revisionToRestoreTo.rev })
             } catch (error) {
                 if (error.errno !== -2) throw error
-                await this._db.filesRestore({ path: remotePath, rev: entries[1].rev })
+
+                const response = await this._db.filesRestore({ path: remotePath, rev: entries[1].rev })
+                console.log(`_rollback ${response.status}`)
             }
         }
     }
