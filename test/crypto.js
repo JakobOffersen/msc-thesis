@@ -1,7 +1,7 @@
 const assert = require("chai").assert
 const crypto = require("../crypto")
 
-describe("Crypto.js", function () {
+describe.skip("Crypto.js", function () {
 	describe("#hash(input)", function () {
 		it("input must be of type Buffer", function () {
 			const input = Buffer.from("hello world")

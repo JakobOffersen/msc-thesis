@@ -1,27 +1,29 @@
 const assert = require("chai").assert
-const { FuseHandlers, STREAM_CHUNK_SIZE } = require("../fuse-crypto-handlers")
+const { FuseHandlers } = require("../fuse/fuse-crypto-handlers")
+const { STREAM_CHUNK_SIZE, LOCAL_KEYRING_PATH, BASE_DIR } = require("../constants")
+const KeyRing = require("../key-management/keyring")
 const { join, resolve } = require("path")
 const fs = require("fs/promises")
 const fsFns = require("../fsFns.js")
 const sodium = require("sodium-native")
-const KeyProvider = require("../key-provider")
 const crypto = require("../crypto")
 
 const tempDir = resolve("./tmp/")
-const testFile = "test.txt"
+const keyringPath = join(tempDir, "test.keyring")
+
+const testFile = "/test.txt"
 const testFilePath = join(tempDir, testFile)
 
-const keyProvider = new KeyProvider()
-const handlers = new FuseHandlers(tempDir, keyProvider)
+const keyring = new KeyRing(keyringPath, tempDir)
+const handlers = new FuseHandlers(tempDir, keyring)
 
 /* Helpers */
 async function writeTestMessage(path, length) {
-    const file = await fs.open(path, "w+")
+    const mode = 33188 // the mode FUSE uses when it calls our handler
+    let fd = await handlers.create(path, mode)
 
     const message = Buffer.alloc(length)
     sodium.randombytes_buf(message)
-
-    const key = keyProvider.getKeyForPath(path)
 
     // Write chunks
     let written = 0
@@ -31,47 +33,53 @@ async function writeTestMessage(path, length) {
 
         const plaintext = message.subarray(written, written + toBeWritten)
 
-        // Write nonce
-        const nonce = crypto.makeNonce()
-        await file.write(nonce)
-
-        const ciphertext = Buffer.alloc(toBeWritten + sodium.crypto_secretbox_MACBYTES)
-
-        const res = sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, key)
-        if (res !== 0) {
-            // TODO: Handle error
-        }
+        await handlers.write(path, fd, plaintext, toBeWritten, written)
 
         written += toBeWritten
-
-        // Write ciphertext
-        await file.write(ciphertext)
     }
 
-    await file.close()
+    await handlers.release(path, fd)
+    await fsFns.close(fd)
 
     return message
 }
 
 // Uses the fuse handlers to open a file and read its contents
-async function openAndRead(fileName, length, position = 0) {
-    const fd = await handlers.open(fileName, 0)
+async function openAndRead(path, length, position = 0) {
+    const fd = await handlers.open(path, "r")
 
-    const readBuffer = Buffer.alloc(length)
-    const readLength = await handlers.read(fileName, fd, readBuffer, length, position)
+    const message = Buffer.alloc(length)
 
+    let read = 0
+
+    while (read < message.byteLength) {
+        const toBeRead = Math.min(STREAM_CHUNK_SIZE, length - read)
+
+        const plaintext = message.subarray(read, read + toBeRead)
+
+        await handlers.read(path, fd, plaintext, toBeRead, read)
+
+        read += toBeRead
+    }
+
+    await handlers.release(path, fd)
     await fsFns.close(fd)
-    handlers.release(fileName, fd)
 
-    return { readBuffer, readLength }
+    return message
 }
 
 /* Test suite */
 
 describe("fuse handlers", function () {
+    before("setup keyring", async function () {
+        try {
+            await fs.rm(keyringPath) // remove the previous test-key ring if any.
+        } catch {}
+    })
     beforeEach("setup test-file", async function () {
-        // this also overwrites the (potentially) existing test-file
-        // await fs.open(testFilePath, "w+")
+        try {
+            await fs.rm(testFilePath)
+        } catch (error) {}
     })
 
     afterEach("teardown test-file", async function () {
@@ -80,15 +88,22 @@ describe("fuse handlers", function () {
         } catch (error) {}
     })
 
+    after("teardown keyring", async function () {
+        try {
+            await fs.rm(keyringPath) // remove the previous test-key ring if any.
+        } catch {}
+    })
+
     /* These cases test reading an entire encrypted file in various sizes. */
     const sizes = [0, 1, 32, 128, STREAM_CHUNK_SIZE - 1, STREAM_CHUNK_SIZE, STREAM_CHUNK_SIZE + 1, 2 * STREAM_CHUNK_SIZE, 10000, 10 * STREAM_CHUNK_SIZE]
 
     sizes.forEach(size => {
-        it(`reads a ${size} byte encrypted file`, async function () {
-            const message = await writeTestMessage(testFilePath, size)
-            const { readBuffer, readLength } = await openAndRead(testFile, message.byteLength, 0)
+        it(`writes and reads a ${size} byte file`, async function () {
+            const message = await writeTestMessage(testFile, size)
+            const readBuffer = await openAndRead(testFile, message.byteLength, 0)
 
-            assert.strictEqual(message.byteLength, readLength)
+            assert.strictEqual(message.length, readBuffer.length)
+            assert.strictEqual(message.length, size)
             assert.isTrue(Buffer.compare(message, readBuffer) === 0)
         })
     })
