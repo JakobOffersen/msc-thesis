@@ -8,7 +8,7 @@ const HandleHolder = require("./handle-holder")
 const lock = require("fd-lock")
 const { Dropbox } = require("dropbox") // TODO: Refactor out
 const { FSP_ACCESS_TOKEN, CAPABILITY_TYPE_WRITE } = require("../constants.js")
-const { createDeleteFileContent, markFilenameAsDeleted } = require("../file-delete-utils.js")
+const { createDeleteFileContent } = require("../file-delete-utils.js")
 const { createReadStream } = require("fs")
 const dch = require("../dropbox-content-hasher")
 
@@ -257,7 +257,7 @@ class FuseHandlers {
         const fd = await fsFns.open(fullPath, "w")
         await fsFns.write(fd, content, 0, content.length, 0)
 
-        await fs.rename(fullPath, markFilenameAsDeleted(fullPath)) // we mark deleted file "file.extension" with "file.extension.deleted" to easier distinguish deleted files from non-deleted files
+        await fs.rename(fullPath, fullPath + ".deleted") // we mark  the file with -extension to easier distinguish deleted files from non-deleted files
     }
 
     async rename(src, dest) {

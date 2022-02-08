@@ -11,10 +11,11 @@ const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
 const { FILE_DELETE_PREFIX_BUFFER } = require("../constants")
 const { verifyCombined, verifyDetached } = require("../crypto")
-const { fileAtPathMarkedAsDeleted, markFilenameAsDeleted } = require("../file-delete-utils")
+const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
 const { createHash } = require("crypto")
 const { STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE, SIGNATURE_MARK } = require("../constants")
 const debounce = require("debounce")
+const { inversePromise } = require("../test/testUtil")
 
 /// IntegrityChecker reacts to changes on 'watchPatch' (intended to be the dropbox-client)
 /// and verifies each change against 'predicate'.
@@ -92,38 +93,35 @@ class IntegrityChecker extends EventEmitter {
         await this._watcher.close()
     }
 
-    async _verify({ localPath, remotePath }) {
-        if (extname(localPath) === ".deleted") localPath = localPath.replace(".deleted", "")
+    async _verify({ localPath, remotePath, eventType }) {
         const verifyCapability = await this._keyring.getCapabilityWithPathAndType(remotePath, "verify")
         if (!verifyCapability) return true // we accept files we cannot check.
+
+        if (extname(localPath) === ".deleted" && eventType === "unlink") return false // we dont allow .deleted files to be deleted
 
         try {
             const hasDeleteMark = await fileAtPathMarkedAsDeleted(localPath) // throws if the file does not exist
 
             if (hasDeleteMark) {
+                // step 1)
                 // A valid delete follows the schema:
                 //      <delete-prefix><signature(revisionID)>
                 // where 'revisionID' denotes the latest revision ID of the file before it was marked as deleted
                 // Thus we accept the file-delete iff
-                // 1) the prefix is present and correct AND (which is checked by 'fileAtPathMarkedAsDeleted')
+                // 1) the prefix is present and correct AND
                 // 2) the signature is present and correct AND
                 // 3) the signed message is the revision ID of the file just before the file marked as deleted
 
                 // read the signature from the file
-                localPath = markFilenameAsDeleted(localPath)
+                if (extname(localPath) !== ".deleted") localPath = localPath + ".deleted"
                 const content = await fs.readFile(localPath)
                 const signedMessage = content.subarray(FILE_DELETE_PREFIX_BUFFER.length)
                 const { verified, message } = verifyCombined(signedMessage, verifyCapability.key)
 
                 if (!verified) return false // the signature is not valid. No need to check further
-                // fetch the revisionID of the file.
-                const response = await this._db.filesListRevisions({ path: remotePath, mode: "path" })
-                const entries = response.result.entries
-                // TODO: This step is prone to a race condition in which the remote file is changed in between the local file trigger and the list of revisions we fetch above.
-                // Fix this by computing the revision ID (based on the content hash) of the current file and choosing the revision ID just after that value
-                const revisionID = entries[1].rev // entry '0' is the version of the file => entry '1' is the revision that is marked as downloaded
 
-                return Buffer.compare(message, Buffer.from(revisionID, "hex")) === 0
+                const revisionBeforeCurrentRevision = await this.revisionBeforeCurrentRevision({ localPath, remotePath })
+                return Buffer.compare(message, Buffer.from(revisionBeforeCurrentRevision.rev, "hex")) === 0
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash from the macs in all chunks
@@ -145,6 +143,32 @@ class IntegrityChecker extends EventEmitter {
         }
     }
 
+    async revisionBeforeCurrentRevision({ localPath, remotePath, contentHash, retries = 0 } = {}) {
+        if (retries === 3) throw new Error(`Cannot compute current revision for ${remotePath}. Retries: ${retries}`)
+
+        // Find the index of the current revision. The revision used for the message must be just before the current one
+        // We need this step to handle a race condition in which we fetch for revisions of the file before Dropbox
+        // has received the latest revision that we has marked as deleted.
+
+        if (!contentHash) contentHash = await dropboxContentHash(localPath)
+
+        const response = await this._db.filesListRevisions({ path: remotePath.replace(".deleted", ""), mode: "path" })
+        const entries = response.result.entries
+        // Find the index of the current revision. The revision used for the message must be just before the current one
+        // We need this step to handle a race condition in which we fetch for revisions of the file before Dropbox
+        // has received the latest revision that we has marked as deleted.
+        const currentRevisionIndex = entries.findIndex(entry => entry.content_hash === contentHash)
+
+        if (currentRevisionIndex !== -1) return entries[currentRevisionIndex + 1] // return the revision before the current one
+
+        // FSP has not received the deleted version of the file.
+        // backoff and try again
+        const { promise, resolve } = inversePromise()
+        setTimeout(resolve, 2000) // wait for two seconds
+        await promise
+        return this.revisionBeforeCurrentRevision({ localPath, remotePath, retries: retries + 1 })
+    }
+
     /** Checks if the modified file at 'localPath' satisfies the predicate given in the constructor
      *  If not, the file at 'localPath' is restored to the latest revision which satisfy 'predicate'.
      *
@@ -161,25 +185,31 @@ class IntegrityChecker extends EventEmitter {
      * @param {} remotePath - the remote path of the file to restore. Is optional if 'localPath' is present
      * @param {} localPath - the local path of the file to restore. Is optional if 'remotePath' is present
      */
-    async _rollback({ localPath, remotePath }) {
-        const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
-        const entries = response.result.entries
-
-        console.log(`revisions ${localPath}`)
-        entries.forEach(e => console.log(`\t${e.rev}`))
-        console.log("-----")
-
-        try {
-            const hash = await dropboxContentHash(localPath)
-
-            const revisionIndex = entries.findIndex(entry => entry.content_hash === hash) // TDOO: Handle 'undefined'. Fetch more
-            const revisionToRestoreTo = entries[revisionIndex + 1] // TDOO: Handle out of bounds. Fetch more
-            console.log(`revision Index: ${revisionIndex}`)
-
-            await this._db.filesRestore({ path: remotePath, rev: revisionToRestoreTo.rev })
-        } catch (error) {
-            if (error.errno !== -2) throw error
+    async _rollback({ localPath, remotePath, eventType }) {
+        if (extname(localPath) === ".deleted" && eventType === "unlink") {
+            const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+            const entries = response.result.entries
             await this._db.filesRestore({ path: remotePath, rev: entries[1].rev })
+        } else {
+            remotePath = remotePath.replace(".deleted", "")
+            const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+            const entries = response.result.entries
+            console.log(`revisions ${localPath}`)
+            entries.forEach(e => console.log(`\t${e.rev}`))
+            console.log("-----")
+
+            try {
+                const hash = await dropboxContentHash(localPath)
+
+                const revisionIndex = entries.findIndex(entry => entry.content_hash === hash) // TDOO: Handle 'undefined'. Fetch more
+                const revisionToRestoreTo = entries[revisionIndex + 1] // TDOO: Handle out of bounds. Fetch more
+                console.log(`revision Index: ${revisionIndex}`)
+
+                await this._db.filesRestore({ path: remotePath, rev: revisionToRestoreTo.rev })
+            } catch (error) {
+                if (error.errno !== -2) throw error
+                await this._db.filesRestore({ path: remotePath, rev: entries[1].rev })
+            }
         }
     }
 

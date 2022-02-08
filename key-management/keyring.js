@@ -79,6 +79,8 @@ class KeyRing {
 
     async getCapabilityWithPathAndType(path, type, keytype = "buffer") {
         if (!path.startsWith("/")) path = "/" + path
+        path = path.replace(".deleted", "")
+        
         if (!this._isValidCapabilityType(type)) {
             throw new Error("Recieved invalid type: " + type)
         }

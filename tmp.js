@@ -1,6 +1,6 @@
-const { extname, dirname, basename, join } = require("path")
+const fs = require("fs/promises")
 
-const fullpath = "/Users/jakoboffersen/Desktop/msc-thesis/cac-project-test/msc-thesis/test-files/1mb.txt"
-const parent = dirname(fullpath)
-const filename = basename(fullpath)
-console.log(extname(join(parent, filename + ".deleted")))
+const path = "/Users/jakoboffersen/Dropbox/half-mb.txt.deleted"
+fs.readFile(path).then(content => {
+    //console.dir(content, "hex", { maxArrayLength: null })
+})
