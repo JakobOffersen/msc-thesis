@@ -57,7 +57,7 @@ async function openAndRead(path, length, position = 0) {
 
         const plaintext = message.subarray(read, read + toBeRead)
 
-        await handlers.read(path, fd, plaintext, toBeRead, read)
+        await handlers.read(path, fd, plaintext, toBeRead, read + position)
 
         read += toBeRead
     }
@@ -113,7 +113,7 @@ describe("fuse handlers", function () {
         const size = 5176 // Must be divisible by sequenceSize
         const sequenceSize = 8
 
-        const message = await writeTestMessage(testFilePath, size)
+        const message = await writeTestMessage(testFile, size)
 
         const readBuffer = Buffer.alloc(message.byteLength)
         const fd = await handlers.open(testFile, 0)
@@ -129,7 +129,7 @@ describe("fuse handlers", function () {
         assert.isTrue(Buffer.compare(message, readBuffer) === 0)
 
         await fsFns.close(fd)
-        handlers.release(testFile, fd)
+        await handlers.release(testFile, fd)
     })
 
     /* These cases test reading from arbitrary locations in the file and across chunk boundaries. */
@@ -147,12 +147,11 @@ describe("fuse handlers", function () {
 
     cases.forEach(([size, start, length]) => {
         it(`reads ${length} bytes from position ${start} within a ${size} byte file`, async function () {
-            const message = await writeTestMessage(testFilePath, size)
-            const { readBuffer, readLength } = await openAndRead(testFile, length, start)
+            const message = await writeTestMessage(testFile, size)
+            const readBuffer = await openAndRead(testFile, length, start)
 
             const expectedMsg = message.subarray(start, start + length)
 
-            assert.strictEqual(expectedMsg.byteLength, readLength)
             assert.isTrue(Buffer.compare(expectedMsg, readBuffer) === 0)
         })
     })

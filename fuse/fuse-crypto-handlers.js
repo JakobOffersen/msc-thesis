@@ -36,7 +36,7 @@ function messageSize(ciphertextBytes) {
 }
 
 class FuseHandlers {
-    constructor(baseDir, keyRing, { debug = true } = {}) {
+    constructor(baseDir, keyRing, { debug = false } = {}) {
         this.baseDir = baseDir
         this.keyRing = keyRing
         this.debug = debug
