@@ -17,7 +17,6 @@ const testFilePath = join(tempDir, testFile)
 const keyring = new KeyRing(keyringPath, tempDir)
 const handlers = new FuseHandlers(tempDir, keyring)
 
-//TODO: Strukturér testene med nested describes så de blive mere overskuelige (kategoriserede) når man kører test-suiten
 /* Helpers */
 // TODO: Ændr denne til ikke at benytte FUSE?
 async function writeTestMessage(path, length) {
@@ -137,126 +136,134 @@ describe("fuse handlers", function () {
         await handlers.release(testFile, fd)
     })
 
-    /* These cases test reading from arbitrary locations in the file and across chunk boundaries. */
-    const cases = [
-        [1024, 0, 512],
-        [1024, 1, 2],
-        [1024, 256, 768],
-        [1024, 0, 1024],
-        [1024, 10, 20],
-        [1024, 1000, 24],
-        [1024, 367, 124],
-        [4064, 1, 3000],
-        [4080, 1, 3000]
-    ]
+    describe("reads from arbitrary positions across chunk boundaries in files of different sizes", function () {
+        /* These cases test reading from arbitrary locations in the file and across chunk boundaries. */
+        const cases = [
+            [1024, 0, 512],
+            [1024, 1, 2],
+            [1024, 256, 768],
+            [1024, 0, 1024],
+            [1024, 10, 20],
+            [1024, 1000, 24],
+            [1024, 367, 124],
+            [4064, 1, 3000],
+            [4080, 1, 3000]
+        ]
 
-    cases.forEach(([size, start, length]) => {
-        it(`reads ${length} bytes from position ${start} within a ${size} byte file`, async function () {
-            const message = await writeTestMessage(testFile, size)
-            const readBuffer = await openAndRead(testFile, length, start)
+        cases.forEach(([size, start, length]) => {
+            it(`reads ${length} bytes from position ${start} within a ${size} byte file`, async function () {
+                const message = await writeTestMessage(testFile, size)
+                const readBuffer = await openAndRead(testFile, length, start)
 
-            const expectedMsg = message.subarray(start, start + length)
+                const expectedMsg = message.subarray(start, start + length)
 
-            assert.isTrue(Buffer.compare(expectedMsg, readBuffer) === 0)
+                assert.isTrue(Buffer.compare(expectedMsg, readBuffer) === 0)
+            })
         })
     })
 
-    /* These cases test skipping (reading from arbitrary, non-sequential positions) */
-    const cases2 = [
-        [0, 4096], // Chunk 0
-        [0, 4097], // Chunks 0, 1
-        [0, 4097, 8193, 12289], // Chunks 0-3
-        [0, 5000, 10, 6000], // Chunks 0, 1, 0, 1
-        [5500], // Chunk 1
-        [14000], // Chunk 3
-        [12289, 8193, 4097, 0], // Chunks 3, 2, 1, 0
-        [5000, 13000, 9000, 1000], // Chunks 1, 3, 2, 0
-        [16383, 0] // Chunks 3, 0
-    ]
+    describe("reads from arbitrary, non-sequential positions in a file", function () {
+        /* These cases test skipping (reading from arbitrary, non-sequential positions) */
+        const cases2 = [
+            [0, 4096], // Chunk 0
+            [0, 4097], // Chunks 0, 1
+            [0, 4097, 8193, 12289], // Chunks 0-3
+            [0, 5000, 10, 6000], // Chunks 0, 1, 0, 1
+            [5500], // Chunk 1
+            [14000], // Chunk 3
+            [12289, 8193, 4097, 0], // Chunks 3, 2, 1, 0
+            [5000, 13000, 9000, 1000], // Chunks 1, 3, 2, 0
+            [16383, 0] // Chunks 3, 0
+        ]
 
-    cases2.forEach(positions => {
-        it(`reads bytes ${positions} from a 16384 byte file`, async function () {
-            const size = 16384
-            const message = await writeTestMessage(testFile, size)
-            const expectedMessage = Buffer.from(positions.map(i => message.readUInt8(i)))
+        cases2.forEach(positions => {
+            it(`reads bytes ${positions} from a 16384 byte file`, async function () {
+                const size = 16384
+                const message = await writeTestMessage(testFile, size)
+                const expectedMessage = Buffer.from(positions.map(i => message.readUInt8(i)))
 
-            const readBuffer = Buffer.alloc(expectedMessage.byteLength)
-            const fd = await handlers.open(testFile, 0)
+                const readBuffer = Buffer.alloc(expectedMessage.byteLength)
+                const fd = await handlers.open(testFile, 0)
 
-            for (const [index, position] of positions.entries()) {
-                const window = readBuffer.subarray(index, index + 1)
-                const length = await handlers.read(testFile, fd, window, 1, position)
-                assert.strictEqual(length, 1)
-            }
+                for (const [index, position] of positions.entries()) {
+                    const window = readBuffer.subarray(index, index + 1)
+                    const length = await handlers.read(testFile, fd, window, 1, position)
+                    assert.strictEqual(length, 1)
+                }
 
-            assert.isTrue(Buffer.compare(expectedMessage, readBuffer) === 0)
+                assert.isTrue(Buffer.compare(expectedMessage, readBuffer) === 0)
 
-            await fsFns.close(fd)
-            handlers.release(testFile, fd)
+                await fsFns.close(fd)
+                handlers.release(testFile, fd)
+            })
         })
     })
 
-    /** Write handler tests **/
-    const FILE_WRITE_FLAGS = 1538 // fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_RDWR
-    const cases3 = [1, 2, 4, 8, 64, 128, 512, 1000, 1024, 1234, 2048, 4096, 8192, 10000, 12000, 16384, 65536, 655360]
+    describe("writes files of different sizes", function () {
+        /** Write handler tests **/
+        const FILE_WRITE_FLAGS = 1538 // fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_RDWR
+        const cases3 = [1, 2, 4, 8, 64, 128, 512, 1000, 1024, 1234, 2048, 4096, 8192, 10000, 12000, 16384, 65536, 655360]
 
-    cases3.forEach(writeSize => {
-        it(`writes a ${writeSize} byte file`, async function () {
-            const message = Buffer.alloc(writeSize)
-            sodium.randombytes_buf(message)
+        cases3.forEach(writeSize => {
+            it(`writes a ${writeSize} byte file`, async function () {
+                const message = Buffer.alloc(writeSize)
+                sodium.randombytes_buf(message)
 
-            const mode = 33188 // the mode FUSE uses when it calls our handler
-            const fd = await handlers.create(testFile, mode)
-            const bytesWritten = await handlers.write(testFile, fd, message, message.byteLength, 0)
+                const mode = 33188 // the mode FUSE uses when it calls our handler
+                const fd = await handlers.create(testFile, mode)
+                const bytesWritten = await handlers.write(testFile, fd, message, message.byteLength, 0)
 
-            await fsFns.close(fd)
-            await handlers.release(testFile, fd)
+                await fsFns.close(fd)
+                await handlers.release(testFile, fd)
 
-            const readBuffer = await openAndRead(testFile, message.byteLength, 0)
+                const readBuffer = await openAndRead(testFile, message.byteLength, 0)
 
-            assert.strictEqual(writeSize, bytesWritten)
-            assert.strictEqual(writeSize, readBuffer.length)
-            assert.strictEqual(Buffer.compare(message, readBuffer), 0)
+                assert.strictEqual(writeSize, bytesWritten)
+                assert.strictEqual(writeSize, readBuffer.length)
+                assert.strictEqual(Buffer.compare(message, readBuffer), 0)
+            })
         })
     })
 
-    const cases4 = [
-        [4096, 200, 0],
-        [4096, 200, 2048],
-        [4096, 200, 4096],
-        [8192, 100, 0],
-        [8192, 100, 4096],
-        [8192, 100, 6000],
-        [8192, 8192, 7000],
-        [8192, 8192, 8192],
-        [65536, 1, 0],
-        [65536, 1, 1],
-        [65536, 1, 20000],
-        [65536, 1, 65536]
-    ]
-    cases4.forEach(([size, writeSize, position]) => {
-        it(`writes ${size} byte file and inserts ${writeSize} byte(s) at position ${position}`, async function () {
-            const message = Buffer.alloc(size)
-            sodium.randombytes_buf(message)
+    describe("writes entire file followed by inserting window at arbitrary position with arbitrary size", function () {
+        const cases4 = [
+            [4096, 200, 0],
+            [4096, 200, 2048],
+            [4096, 200, 4096],
+            [8192, 100, 0],
+            [8192, 100, 4096],
+            [8192, 100, 6000],
+            [8192, 8192, 7000],
+            [8192, 8192, 8192],
+            [65536, 1, 0],
+            [65536, 1, 1],
+            [65536, 1, 20000],
+            [65536, 1, 65536]
+        ]
+        cases4.forEach(([size, writeSize, position]) => {
+            it(`writes ${size} byte file and inserts ${writeSize} byte(s) at position ${position}`, async function () {
+                const message = Buffer.alloc(size)
+                sodium.randombytes_buf(message)
 
-            const injection = Buffer.alloc(writeSize)
-            sodium.randombytes_buf(injection)
+                const injection = Buffer.alloc(writeSize)
+                sodium.randombytes_buf(injection)
 
-            const head = message.subarray(0, position)
-            const remaining = position + injection.byteLength > message.byteLength ? Buffer.alloc(0) : message.subarray(position + injection.byteLength)
-            const newMessage = Buffer.concat([head, injection, remaining])
+                const head = message.subarray(0, position)
+                const remaining = position + injection.byteLength > message.byteLength ? Buffer.alloc(0) : message.subarray(position + injection.byteLength)
+                const newMessage = Buffer.concat([head, injection, remaining])
 
-            const mode = 33188 // the mode FUSE uses when it calls our handler //TODO: Refactor all 'modes' into one constant with documentation as for why this mode is needed
-            const fd = await handlers.create(testFile, mode)
-            await handlers.write(testFile, fd, message, message.byteLength, 0)
-            await handlers.write(testFile, fd, injection, injection.byteLength, position)
+                const mode = 33188 // the mode FUSE uses when it calls our handler //TODO: Refactor all 'modes' into one constant with documentation as for why this mode is needed
+                const fd = await handlers.create(testFile, mode)
+                await handlers.write(testFile, fd, message, message.byteLength, 0)
+                await handlers.write(testFile, fd, injection, injection.byteLength, position)
 
-            await fsFns.close(fd)
-            await handlers.release(testFile, fd)
+                await fsFns.close(fd)
+                await handlers.release(testFile, fd)
 
-            const readBuffer = await openAndRead(testFile, newMessage.byteLength, 0)
+                const readBuffer = await openAndRead(testFile, newMessage.byteLength, 0)
 
-            assert.strictEqual(Buffer.compare(newMessage, readBuffer), 0)
+                assert.strictEqual(Buffer.compare(newMessage, readBuffer), 0)
+            })
         })
     })
 
