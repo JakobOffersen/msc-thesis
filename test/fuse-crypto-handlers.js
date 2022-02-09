@@ -100,14 +100,16 @@ describe("fuse handlers", function () {
     /* These cases test reading an entire encrypted file in various sizes. */
     const sizes = [0, 1, 32, 128, STREAM_CHUNK_SIZE - 1, STREAM_CHUNK_SIZE, STREAM_CHUNK_SIZE + 1, 2 * STREAM_CHUNK_SIZE, 10000, 10 * STREAM_CHUNK_SIZE]
 
-    sizes.forEach(size => {
-        it(`writes and reads a ${size} byte file`, async function () {
-            const message = await writeTestMessage(testFile, size)
-            const readBuffer = await openAndRead(testFile, message.byteLength, 0)
+    describe("writes and reads entire files", function () {
+        sizes.forEach(size => {
+            it(`writes and reads a ${size} byte file`, async function () {
+                const message = await writeTestMessage(testFile, size)
+                const readBuffer = await openAndRead(testFile, message.byteLength, 0)
 
-            assert.strictEqual(message.length, readBuffer.length)
-            assert.strictEqual(message.length, size)
-            assert.isTrue(Buffer.compare(message, readBuffer) === 0)
+                assert.strictEqual(message.length, readBuffer.length)
+                assert.strictEqual(message.length, size)
+                assert.isTrue(Buffer.compare(message, readBuffer) === 0)
+            })
         })
     })
 
