@@ -70,7 +70,7 @@ class KeyRing {
         await this._write(capabilities)
     }
 
-    async getCapabilitiesWithRelativePath(relativePath, keytype = "buffer") {
+    async getCapabilitiesWithPath(relativePath, keytype = "buffer") {
         const capabilities = await this._read()
         relativePath = resolve(relativePath.replace("/._", "/")) // TODO: Add descriptive comment to the method for why we do this
         const filtered = capabilities.filter(capability => capability.path === relativePath)
@@ -80,7 +80,7 @@ class KeyRing {
     async getCapabilityWithPathAndType(path, type, keytype = "buffer") {
         if (!path.startsWith("/")) path = "/" + path
         path = path.replace(".deleted", "")
-        
+
         if (!this._isValidCapabilityType(type)) {
             throw new Error("Recieved invalid type: " + type)
         }

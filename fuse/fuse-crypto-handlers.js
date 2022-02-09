@@ -164,7 +164,7 @@ class FuseHandlers {
         if (this.debug) console.log(`open ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
-        const capabilities = await this.keyRing.getCapabilitiesWithRelativePath(path)
+        const capabilities = await this.keyRing.getCapabilitiesWithPath(path)
 
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
         this.handles.set(fd, filehandle)
@@ -230,7 +230,7 @@ class FuseHandlers {
         const cleanedBasename = basename(path).split(".").slice(0, 2).join(".") // remove potential suffixes starting with "." Eg "/picture.jpg.sb-ab52335b-nePMlX" becomes "picture.jpg"
         let capabilities
         if (parentName.startsWith(cleanedBasename)) {
-            capabilities = await this.keyRing.getCapabilitiesWithRelativePath("/" + cleanedBasename)
+            capabilities = await this.keyRing.getCapabilitiesWithPath("/" + cleanedBasename)
         } else {
             capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
         }
