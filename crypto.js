@@ -33,10 +33,10 @@ function encrypt(plainMessage, key) {
     return Buffer.concat([nonce, ciphertext]) // Prepend nonce to ciphertext
 }
 
-function encryptWithPublicKey(plainMessage, recipientPublicKey) {
-    let m = Buffer.from(plainMessage, "utf-8")
+function encryptWithPublicKey(plain, pk) {
+    let m = Buffer.from(plain, "utf-8")
     let ciphertext = Buffer.alloc(m.length + sodium.crypto_box_SEALBYTES)
-    sodium.crypto_box_seal(ciphertext, m, recipientPublicKey)
+    sodium.crypto_box_seal(ciphertext, m, pk)
     return ciphertext
 }
 
