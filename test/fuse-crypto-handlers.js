@@ -17,14 +17,15 @@ const testFilePath = join(tempDir, testFile)
 const keyring = new KeyRing(keyringPath, tempDir)
 const handlers = new FuseHandlers(tempDir, keyring)
 
+//TODO: Strukturér testene med nested describes så de blive mere overskuelige (kategoriserede) når man kører test-suiten
 /* Helpers */
+// TODO: Ændr denne til ikke at benytte FUSE?
 async function writeTestMessage(path, length) {
     const mode = 33188 // the mode FUSE uses when it calls our handler
     let fd = await handlers.create(path, mode)
 
     const message = Buffer.alloc(length)
     sodium.randombytes_buf(message)
-
     // Write chunks
     let written = 0
 
@@ -79,12 +80,14 @@ describe("fuse handlers", function () {
     beforeEach("setup test-file", async function () {
         try {
             await fs.rm(testFilePath)
+            await fs.rm(keyringPath) // remove the previous test-key ring if any.
         } catch (error) {}
     })
 
     afterEach("teardown test-file", async function () {
         try {
             await fs.rm(testFilePath)
+            await fs.rm(keyringPath) // remove the previous test-key ring if any.
         } catch (error) {}
     })
 
@@ -172,7 +175,7 @@ describe("fuse handlers", function () {
     cases2.forEach(positions => {
         it(`reads bytes ${positions} from a 16384 byte file`, async function () {
             const size = 16384
-            const message = await writeTestMessage(testFilePath, size)
+            const message = await writeTestMessage(testFile, size)
             const expectedMessage = Buffer.from(positions.map(i => message.readUInt8(i)))
 
             const readBuffer = Buffer.alloc(expectedMessage.byteLength)
@@ -200,16 +203,17 @@ describe("fuse handlers", function () {
             const message = Buffer.alloc(writeSize)
             sodium.randombytes_buf(message)
 
-            const fd = await handlers.open(testFile, FILE_WRITE_FLAGS)
+            const mode = 33188 // the mode FUSE uses when it calls our handler
+            const fd = await handlers.create(testFile, mode)
             const bytesWritten = await handlers.write(testFile, fd, message, message.byteLength, 0)
 
             await fsFns.close(fd)
-            handlers.release(testFile, fd)
+            await handlers.release(testFile, fd)
 
-            const { readBuffer, readLength } = await openAndRead(testFile, message.byteLength, 0)
+            const readBuffer = await openAndRead(testFile, message.byteLength, 0)
 
             assert.strictEqual(writeSize, bytesWritten)
-            assert.strictEqual(writeSize, readLength)
+            assert.strictEqual(writeSize, readBuffer.length)
             assert.strictEqual(Buffer.compare(message, readBuffer), 0)
         })
     })
@@ -240,16 +244,16 @@ describe("fuse handlers", function () {
             const remaining = position + injection.byteLength > message.byteLength ? Buffer.alloc(0) : message.subarray(position + injection.byteLength)
             const newMessage = Buffer.concat([head, injection, remaining])
 
-            const fd = await handlers.open(testFile, FILE_WRITE_FLAGS)
+            const mode = 33188 // the mode FUSE uses when it calls our handler //TODO: Refactor all 'modes' into one constant with documentation as for why this mode is needed
+            const fd = await handlers.create(testFile, mode)
             await handlers.write(testFile, fd, message, message.byteLength, 0)
             await handlers.write(testFile, fd, injection, injection.byteLength, position)
 
             await fsFns.close(fd)
-            handlers.release(testFile, fd)
+            await handlers.release(testFile, fd)
 
-            const { readBuffer, readLength } = await openAndRead(testFile, newMessage.byteLength, 0)
+            const readBuffer = await openAndRead(testFile, newMessage.byteLength, 0)
 
-            assert.strictEqual(newMessage.byteLength, readLength)
             assert.strictEqual(Buffer.compare(newMessage, readBuffer), 0)
         })
     })
