@@ -1,6 +1,6 @@
 const assert = require("chai").assert
 const { FuseHandlers } = require("../fuse/fuse-crypto-handlers")
-const { STREAM_CHUNK_SIZE, LOCAL_KEYRING_PATH, BASE_DIR } = require("../constants")
+const { STREAM_CHUNK_SIZE, SIGNATURE_MARK } = require("../constants")
 const KeyRing = require("../key-management/keyring")
 const { join, resolve } = require("path")
 const fs = require("fs/promises")
@@ -80,14 +80,14 @@ describe("fuse handlers", function () {
         try {
             await fs.rm(testFilePath)
             await fs.rm(keyringPath) // remove the previous test-key ring if any.
-        } catch (error) {}
+        } catch {}
     })
 
     afterEach("teardown test-file", async function () {
         try {
             await fs.rm(testFilePath)
             await fs.rm(keyringPath) // remove the previous test-key ring if any.
-        } catch (error) {}
+        } catch {}
     })
 
     after("teardown keyring", async function () {
@@ -264,6 +264,27 @@ describe("fuse handlers", function () {
 
                 assert.strictEqual(Buffer.compare(newMessage, readBuffer), 0)
             })
+        })
+    })
+
+    describe("signature matches file content after every write", function() {
+        const mode = 33188 // the mode FUSE uses when it calls our handler
+
+        it("signature is added on file creation", async function() {
+            await handlers.create(testFile, mode)
+
+            // check the signature
+            const verifyCapability = await keyring.getCapabilityWithPathAndType(testFile, "verify")
+            const verifyKey = verifyCapability.key
+            const expectedMessage = Buffer.from("")
+
+            // read the signature
+            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+            const fd = await fsFns.open(testFilePath, "r")
+            await fsFns.read(fd, signature, 0, signature.signature, SIGNATURE_MARK.length) // offset by the signature mark
+
+            const verified = crypto.verifyDetached(signature, expectedMessage, verifyKey)
+            assert.isTrue(verified)
         })
     })
 
