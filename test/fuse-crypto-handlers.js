@@ -1,12 +1,13 @@
 const assert = require("chai").assert
 const { FuseHandlers } = require("../fuse/fuse-crypto-handlers")
-const { STREAM_CHUNK_SIZE, SIGNATURE_MARK } = require("../constants")
+const { STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_MARK, TOTAL_SIGNATURE_SIZE } = require("../constants")
 const KeyRing = require("../key-management/keyring")
 const { join, resolve } = require("path")
 const fs = require("fs/promises")
 const fsFns = require("../fsFns.js")
 const sodium = require("sodium-native")
 const crypto = require("../crypto")
+const { createHash } = require("crypto")
 
 const tempDir = resolve("./tmp/")
 const keyringPath = join(tempDir, "test.keyring")
@@ -267,24 +268,61 @@ describe("fuse handlers", function () {
         })
     })
 
-    describe("signature matches file content after every write", function() {
+    describe("signature matches file content after every write", function () {
         const mode = 33188 // the mode FUSE uses when it calls our handler
 
-        it("signature is added on file creation", async function() {
+        async function readSignature(path) {
+            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+            const fd = await fsFns.open(path, "r")
+            await fsFns.read(fd, signature, 0, signature.length, SIGNATURE_MARK.length) // offset by the signature mark
+            return signature
+        }
+
+        async function readWindow(path, startPosition, size) {
+            const window = Buffer.alloc(size)
+            const fd = await fsFns.open(path, "r")
+            await fsFns.read(fd, window, 0, window.length, startPosition)
+            return window
+        }
+
+        it("signature is added on file creation", async function () {
+            const hash = createHash("sha256")
             await handlers.create(testFile, mode)
 
-            // check the signature
             const verifyCapability = await keyring.getCapabilityWithPathAndType(testFile, "verify")
             const verifyKey = verifyCapability.key
-            const expectedMessage = Buffer.from("")
+            const expectedMessage = Buffer.from(hash.digest(), "hex") // we expect the hash to be on the empty string
 
-            // read the signature
-            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
-            const fd = await fsFns.open(testFilePath, "r")
-            await fsFns.read(fd, signature, 0, signature.signature, SIGNATURE_MARK.length) // offset by the signature mark
+            const signature = await readSignature(testFilePath)
 
             const verified = crypto.verifyDetached(signature, expectedMessage, verifyKey)
             assert.isTrue(verified)
+        })
+
+        it("updates signature of content-hash after each write", async function () {
+            const size = 2 * STREAM_CHUNK_SIZE
+            const hash = createHash("sha256")
+
+            const fd = await handlers.create(testFile, mode)
+            const verifyCapability = await keyring.getCapabilityWithPathAndType(testFile, "verify")
+            const verifyKey = verifyCapability.key
+
+            const message = Buffer.alloc(size)
+            sodium.randombytes_buf(message)
+
+            for (let chunk = 0; chunk < 2; chunk++) {
+                const position = chunk * STREAM_CHUNK_SIZE
+                const half = message.subarray(position, position + STREAM_CHUNK_SIZE)
+                await handlers.write(testFile, fd, half, half.length, position)
+                const signature = await readSignature(testFilePath)
+                const offset = TOTAL_SIGNATURE_SIZE // avoid reading the signare since the signature should not be a part of the hash of the content to be signed
+                const window = await readWindow(testFilePath, offset + chunk * STREAM_CIPHER_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE)
+                hash.update(window)
+                const digest = hash.copy().digest("hex") // make a copy of the hash to allow it to continue rolling
+                const verified = crypto.verifyDetached(signature, Buffer.from(digest, "hex"), verifyKey)
+
+                assert.isTrue(verified)
+            }
         })
     })
 
