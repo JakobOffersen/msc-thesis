@@ -4,7 +4,7 @@ const { DateTime } = require("luxon")
 const KeyRing = require("../key-management/keyring")
 const { LOCAL_KEYRING_PATH, BASE_DIR } = require("../constants")
 
-const kr = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR)
+const kr = new KeyRing(LOCAL_KEYRING_PATH)
 
 const checker = new IntegrityChecker({
     watchPath: BASE_DIR,

@@ -3,13 +3,30 @@ const { relative, resolve } = require("path")
 const { DateTime } = require("luxon")
 const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 const { clone, cloneAll, generateCapabilitiesForPath } = require("./capability-utils")
-
+const { makeEncryptionKeyPair } = require("../crypto")
 const ignore = ["/.DS_Store"]
 
 class KeyRing {
-    constructor(keyRingPath, baseDir) {
+    constructor(keyRingPath, userPairPath) {
         this.keyRingPath = keyRingPath
-        this.baseDir = baseDir
+        this.userPairPath = userPairPath
+    }
+
+    async makeUserKeyPair() {
+        const { sk, pk } = makeEncryptionKeyPair()
+        const pair = {
+            sk: sk.toString("hex"),
+            pk: pk.toString("hex")
+        }
+
+        const stringified = JSON.stringify(pair, null, 4)
+        await fs.writeFile(this.userPairPath, stringified)
+    }
+
+    async getUserPublicKey() {
+        const content = await fs.readFile(this.userPairPath)
+        const { pk } = JSON.parse(content)
+        return Buffer.from(pk, "hex")
     }
 
     async createNewCapabilitiesForRelativePath(relativePath) {

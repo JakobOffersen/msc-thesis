@@ -14,6 +14,8 @@ const CAPABILITY_TYPE_WRITE = "write"
 const CAPABILITY_TYPE_VERIFY = "verify"
 
 const LOCAL_KEYRING_PATH = join(__dirname, "key-management", "local.keyring")
+const LOCAL_USERPAIR_PATH = join(__dirname, "key-management", "user.keys")
+
 const BASE_DIR = "/Users/jakoboffersen/Dropbox" // resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")
 
@@ -31,6 +33,7 @@ module.exports = {
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_VERIFY,
     LOCAL_KEYRING_PATH,
+    LOCAL_USERPAIR_PATH,
     BASE_DIR,
     MOUNT_DIR,
     FSP_ACCESS_TOKEN,

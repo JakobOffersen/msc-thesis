@@ -5,7 +5,7 @@ const { FuseHandlers } = require("./fuse/fuse-crypto-handlers")
 const KeyRing = require("./key-management/keyring")
 const { LOCAL_KEYRING_PATH, BASE_DIR, MOUNT_DIR } = require("./constants")
 
-const keyRing = new KeyRing(LOCAL_KEYRING_PATH, BASE_DIR)
+const keyRing = new KeyRing(LOCAL_KEYRING_PATH)
 const handlers = new FuseHandlers(BASE_DIR, keyRing, { debug: false })
 const cbHandlers = callbackifyHandlersObj(handlers)
 
