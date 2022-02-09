@@ -6,11 +6,8 @@ const Fuse = require("fuse-native")
 const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("./file-handle")
 const HandleHolder = require("./handle-holder")
 const lock = require("fd-lock")
-const { Dropbox } = require("dropbox") // TODO: Refactor out
-const { FSP_ACCESS_TOKEN, CAPABILITY_TYPE_WRITE } = require("../constants.js")
+const { CAPABILITY_TYPE_WRITE } = require("../constants.js")
 const { createDeleteFileContent } = require("../file-delete-utils.js")
-const { createReadStream } = require("fs")
-const dch = require("../dropbox-content-hasher")
 
 class FSError extends Error {
     constructor(code) {

@@ -10,9 +10,7 @@ const {
     CAPABILITY_TYPE_READ,
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_VERIFY,
-    MOUNT_DIR
 } = require("../constants")
-const { basename } = require("path")
 
 class FileHandle {
     /**

@@ -4,7 +4,8 @@ const { join } = require("path")
 const fs = require("fs/promises")
 const { setupLocalAndRemoteTestFolder, teardownLocalAndRemoteTestFolder } = require("./testUtil")
 const crypto = require("../crypto")
-const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilities, TYPE_READ, TYPE_VERIFY, TYPE_WRITE } = require("../key-management/capability-utils")
+const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilities } = require("../key-management/capability-utils")
+const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 const { v4: uuidv4 } = require("uuid")
 const KeyRing = require("./keyring")
 
@@ -13,7 +14,7 @@ const testDirName = "keyring-system-test"
 
 const fsp = new DropboxProvider(dropboxAccessToken, __dirname)
 
-describe.skip("Keyring system test", function () {
+describe("Keyring system test", function () {
     before("setup local and remote test-folder", async function () {
         await setupLocalAndRemoteTestFolder(__dirname, testDirName, fsp)
     })
@@ -59,12 +60,11 @@ describe.skip("Keyring system test", function () {
         const recipientPostalBox = join(testDirName, "users", recipient.pk.toString("hex"))
         await fs.mkdir(join(__dirname, recipientPostalBox))
 
-        // Actions made by sender
         const filename = "file-to-be-shared.txt"
 
         // Generate capabilities
-        const capabilites = generateCapabilitiesForPath(join(testDirName, filename))
-        const encryptedCapabilities = crypto.encryptWithPublicKey(JSON.stringify(capabilites), recipient.pk)
+        const capabilities = generateCapabilitiesForPath(join(testDirName, filename))
+        const encryptedCapabilities = crypto.encryptWithPublicKey(JSON.stringify(capabilities), recipient.pk)
         await fs.writeFile(join(__dirname, recipientPostalBox, "capability.txt"), encryptedCapabilities)
 
         // upload the capability to recipients postalbox
@@ -74,7 +74,7 @@ describe.skip("Keyring system test", function () {
         const cipher = await fsp.downloadFile(join(recipientPostalBox, "capability.txt"), { shouldWriteToDisk: false })
         const decrypted = crypto.decryptWithPublicKey(cipher.fileBinary, recipient.pk, recipient.sk)
 
-        assert.equal(decrypted, JSON.stringify(capabilites))
+        assert.equal(decrypted, JSON.stringify(capabilities))
     })
 
     it("two users read and write to shared file", async function () {
@@ -94,8 +94,8 @@ describe.skip("Keyring system test", function () {
 
         // sender generates capabilities for the file and encrypts them in a file (with random filename)
         const capabilites = generateCapabilitiesForPath(join(testDirName, filename))
-        const readCap = capabilites.find(cap => cap.type === TYPE_READ)
-        const writeCap = capabilites.find(cap => cap.type === TYPE_WRITE)
+        const readCap = capabilites.find(cap => cap.type === CAPABILITY_TYPE_READ)
+        const writeCap = capabilites.find(cap => cap.type === CAPABILITY_TYPE_WRITE)
         const encryptedCapabilities = encryptCapabilities(capabilites, recipient.pk)
         const randomNameOfCapabilitiesFile = uuidv4()
         const relativePathEncryptedCapabilities = join(postalBoxPath, recipient.pk.toString("hex"), randomNameOfCapabilitiesFile + ".capability")
@@ -122,8 +122,8 @@ describe.skip("Keyring system test", function () {
 
         // recipient decrypts capabilities
         const recipientCapabilities = decryptCapabilities(encryptedFile.fileBinary, recipient.pk, recipient.sk)
-        const recipientReadCap = recipientCapabilities.find(c => c.type === TYPE_READ)
-        const recipientVerifyCap = recipientCapabilities.find(c => c.type === TYPE_VERIFY)
+        const recipientReadCap = recipientCapabilities.find(c => c.type === CAPABILITY_TYPE_READ)
+        const recipientVerifyCap = recipientCapabilities.find(c => c.type === CAPABILITY_TYPE_VERIFY)
 
         // recipient downloads the file from the received capabilities
         const signedCipherFile = await fsp.downloadFile(recipientReadCap.path, { shouldWriteToDisk: false })
