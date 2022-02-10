@@ -1,13 +1,20 @@
 const assert = require("chai").assert
 const { FuseHandlers } = require("../fuse/fuse-crypto-handlers")
-const { STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_READ } = require("../constants")
+const {
+    STREAM_CHUNK_SIZE,
+    STREAM_CIPHER_CHUNK_SIZE,
+    SIGNATURE_SIZE,
+    CAPABILITY_TYPE_WRITE,
+    CAPABILITY_TYPE_READ,
+    CAPABILITY_TYPE_VERIFY
+} = require("../constants")
 const Keyring = require("../key-management/keyring")
-const { join, resolve } = require("path")
+const { join, resolve, basename } = require("path")
 const fs = require("fs/promises")
 const fsFns = require("../fsFns.js")
 const sodium = require("sodium-native")
 const crypto = require("../crypto")
-const { createHash } = require("crypto")
+const { createHash, sign } = require("crypto")
 
 const tempDir = resolve("./tmp/")
 
@@ -20,13 +27,27 @@ const testFilePath = join(tempDir, testFile)
 const handlers = new FuseHandlers(tempDir, keyring)
 
 /* Helpers */
-// TODO: Ændr denne til ikke at benytte FUSE?
-async function writeTestMessage(path, length) {
-    const mode = 33188 // the mode FUSE uses when it calls our handler
-    let fd = await handlers.create(path, mode)
 
+/**
+ * Creates a random message of the requested length. The message is encrypted and signed in the
+ * same way the FUSE handlers would and then written to disk. The random message is returned.
+ */
+async function writeTestMessage(length) {
+    // Create a random message
     const message = Buffer.alloc(length)
     sodium.randombytes_buf(message)
+
+    // Find the appropriate keys and open a file handle
+    const capabilities = await keyring.getCapabilitiesWithPath(testFile)
+    const readCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_READ)
+    const writeCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_WRITE)
+    const file = await fs.open(testFilePath, "w+")
+
+    const hasher = createHash("sha256")
+
+    // Make room for the signature
+    await file.write(Buffer.alloc(64))
+
     // Write chunks
     let written = 0
 
@@ -35,13 +56,31 @@ async function writeTestMessage(path, length) {
 
         const plaintext = message.subarray(written, written + toBeWritten)
 
-        await handlers.write(path, fd, plaintext, toBeWritten, written)
+        const out = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES + toBeWritten + sodium.crypto_secretbox_MACBYTES)
 
+        // Create nonce and encrypt chunk
+        const nonce = out.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
+        sodium.randombytes_buf(nonce)
+
+        const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
+        sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, readCapability.key)
+
+        // Update hash state
+        hasher.update(out)
+
+        // Write nonce & ciphertext
+        await file.write(out)
         written += toBeWritten
     }
 
-    await handlers.release(path, fd)
-    await fsFns.close(fd)
+    // Create signature
+    const digest = hasher.digest()
+    const signature = crypto.signDetached(digest, writeCapability.key)
+    await file.write(signature, 0, signature.byteLength, 0)
+    await file.close()
+
+    // Check that the signature was computed properly
+    assert.isTrue(await checkSignature())
 
     return message
 }
@@ -70,25 +109,60 @@ async function openAndRead(path, length, position = 0) {
     return message
 }
 
+async function checkSignature() {
+    // Find the appropriate keys and open a file handle
+    const capabilities = await keyring.getCapabilitiesWithPath(testFile)
+    const verifyCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_VERIFY)
+    const file = await fs.open(testFilePath, "r")
+
+    // Read signature from file
+    const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+    await file.read(signature, 0, signature.byteLength, 0)
+
+    const hasher = createHash("sha256")
+
+    // Read chunks
+    const fileLength = (await file.stat()).size - signature.byteLength
+    let read = 0
+
+    while (read < fileLength) {
+        const toBeRead = Math.min(STREAM_CIPHER_CHUNK_SIZE, fileLength - read)
+
+        const chunk = Buffer.alloc(toBeRead)
+        await file.read(chunk, 0, toBeRead, read + signature.byteLength)
+
+        // Update hash state
+        hasher.update(chunk)
+
+        read += toBeRead
+    }
+
+    await file.close()
+
+    // Verify signature
+    const digest = hasher.digest()
+
+    return crypto.verifyDetached(signature, digest, verifyCapability.key)
+}
+
 /* Test suite */
 
 describe("fuse handlers", function () {
     before("setup keyring", async function () {
-        try {
-            await fs.rm(keyringPath) // remove the previous test-key ring if any.
-        } catch {}
+        await keyring.createNewCapabilitiesForRelativePath(testFile)
+        const caps = await keyring.getCapabilitiesWithPath(testFile)
     })
     beforeEach("setup test-file", async function () {
         try {
             await fs.rm(testFilePath)
-            await fs.rm(keyringPath) // remove the previous test-key ring if any.
+            // await fs.rm(keyringPath) // remove the previous test-key ring if any.
         } catch {}
     })
 
     afterEach("teardown test-file", async function () {
         try {
             await fs.rm(testFilePath)
-            await fs.rm(keyringPath) // remove the previous test-key ring if any.
+            // await fs.rm(keyringPath) // remove the previous test-key ring if any.
         } catch {}
     })
 
@@ -101,15 +175,15 @@ describe("fuse handlers", function () {
     /* These cases test reading an entire encrypted file in various sizes. */
     const sizes = [0, 1, 32, 128, STREAM_CHUNK_SIZE - 1, STREAM_CHUNK_SIZE, STREAM_CHUNK_SIZE + 1, 2 * STREAM_CHUNK_SIZE, 10000, 10 * STREAM_CHUNK_SIZE]
 
-    describe("writes and reads entire files", function () {
+    describe("reads entire files", function () {
         sizes.forEach(size => {
-            it(`writes and reads a ${size} byte file`, async function () {
-                const message = await writeTestMessage(testFile, size)
+            it(`reads a ${size} byte file`, async function () {
+                const message = await writeTestMessage(size)
                 const readBuffer = await openAndRead(testFile, message.byteLength, 0)
 
-                assert.strictEqual(message.length, readBuffer.length)
-                assert.strictEqual(message.length, size)
-                assert.isTrue(Buffer.compare(message, readBuffer) === 0)
+                assert.strictEqual(message.byteLength, readBuffer.byteLength)
+                assert.strictEqual(readBuffer.byteLength, size)
+                assert.strictEqual(Buffer.compare(message, readBuffer), 0)
             })
         })
     })
@@ -119,7 +193,7 @@ describe("fuse handlers", function () {
         const size = 5176 // Must be divisible by sequenceSize
         const sequenceSize = 8
 
-        const message = await writeTestMessage(testFile, size)
+        const message = await writeTestMessage(size)
 
         const readBuffer = Buffer.alloc(message.byteLength)
         const fd = await handlers.open(testFile, 0)
@@ -131,11 +205,11 @@ describe("fuse handlers", function () {
             readLength += seqLength
         }
 
-        assert.strictEqual(message.byteLength, readLength)
-        assert.isTrue(Buffer.compare(message, readBuffer) === 0)
-
-        await fsFns.close(fd)
         await handlers.release(testFile, fd)
+        await fsFns.close(fd)
+
+        assert.strictEqual(message.byteLength, readLength)
+        assert.strictEqual(Buffer.compare(message, readBuffer), 0)
     })
 
     describe("reads from arbitrary positions across chunk boundaries in files of different sizes", function () {
@@ -154,12 +228,12 @@ describe("fuse handlers", function () {
 
         cases.forEach(([size, start, length]) => {
             it(`reads ${length} bytes from position ${start} within a ${size} byte file`, async function () {
-                const message = await writeTestMessage(testFile, size)
+                const message = await writeTestMessage(size)
                 const readBuffer = await openAndRead(testFile, length, start)
 
                 const expectedMsg = message.subarray(start, start + length)
 
-                assert.isTrue(Buffer.compare(expectedMsg, readBuffer) === 0)
+                assert.strictEqual(Buffer.compare(expectedMsg, readBuffer), 0)
             })
         })
     })
@@ -181,7 +255,7 @@ describe("fuse handlers", function () {
         cases2.forEach(positions => {
             it(`reads bytes ${positions} from a 16384 byte file`, async function () {
                 const size = 16384
-                const message = await writeTestMessage(testFile, size)
+                const message = await writeTestMessage(size)
                 const expectedMessage = Buffer.from(positions.map(i => message.readUInt8(i)))
 
                 const readBuffer = Buffer.alloc(expectedMessage.byteLength)
@@ -203,7 +277,7 @@ describe("fuse handlers", function () {
 
     describe("writes files of different sizes", function () {
         /** Write handler tests **/
-        const FILE_WRITE_FLAGS = 1538 // fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_RDWR
+        const mode = 33188 // the mode FUSE uses when it calls our handler
         const cases3 = [1, 2, 4, 8, 64, 128, 512, 1000, 1024, 1234, 2048, 4096, 8192, 10000, 12000, 16384, 65536, 655360]
 
         cases3.forEach(writeSize => {
@@ -211,7 +285,6 @@ describe("fuse handlers", function () {
                 const message = Buffer.alloc(writeSize)
                 sodium.randombytes_buf(message)
 
-                const mode = 33188 // the mode FUSE uses when it calls our handler
                 const fd = await handlers.create(testFile, mode)
                 const bytesWritten = await handlers.write(testFile, fd, message, message.byteLength, 0)
 
@@ -223,6 +296,7 @@ describe("fuse handlers", function () {
                 assert.strictEqual(writeSize, bytesWritten)
                 assert.strictEqual(writeSize, readBuffer.length)
                 assert.strictEqual(Buffer.compare(message, readBuffer), 0)
+                assert.isTrue(await checkSignature())
             })
         })
     })
@@ -265,65 +339,16 @@ describe("fuse handlers", function () {
                 const readBuffer = await openAndRead(testFile, newMessage.byteLength, 0)
 
                 assert.strictEqual(Buffer.compare(newMessage, readBuffer), 0)
+                assert.isTrue(await checkSignature())
             })
         })
     })
 
-    describe("signature matches file content after every write", function () {
+    it("signs a file after creation", async function () {
         const mode = 33188 // the mode FUSE uses when it calls our handler
+        await handlers.create(testFile, mode)
 
-        async function readSignature(path) {
-            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
-            const fd = await fsFns.open(path, "r")
-            await fsFns.read(fd, signature, 0, signature.length, 0)
-            return signature
-        }
-
-        async function readWindow(path, startPosition, size) {
-            const window = Buffer.alloc(size)
-            const fd = await fsFns.open(path, "r")
-            await fsFns.read(fd, window, 0, window.length, startPosition)
-            return window
-        }
-
-        it("signature is added on file creation", async function () {
-            const hash = createHash("sha256")
-            await handlers.create(testFile, mode)
-
-            const verifyCapability = await keyring.getCapabilityWithPathAndType(testFile, "verify")
-            const verifyKey = verifyCapability.key
-            const expectedMessage = Buffer.from(hash.digest(), "hex") // we expect the hash to be on the empty string
-
-            const signature = await readSignature(testFilePath)
-
-            const verified = crypto.verifyDetached(signature, expectedMessage, verifyKey)
-            assert.isTrue(verified)
-        })
-
-        it("updates signature of content-hash after each write", async function () {
-            const size = 2 * STREAM_CHUNK_SIZE
-            const hash = createHash("sha256")
-
-            const fd = await handlers.create(testFile, mode)
-            const verifyCapability = await keyring.getCapabilityWithPathAndType(testFile, "verify")
-            const verifyKey = verifyCapability.key
-
-            const message = Buffer.alloc(size)
-            sodium.randombytes_buf(message)
-
-            for (let chunk = 0; chunk < 2; chunk++) {
-                const position = chunk * STREAM_CHUNK_SIZE
-                const half = message.subarray(position, position + STREAM_CHUNK_SIZE)
-                await handlers.write(testFile, fd, half, half.length, position)
-                const signature = await readSignature(testFilePath)
-                const offset = SIGNATURE_SIZE // avoid reading the signare since the signature should not be a part of the hash of the content to be signed
-                const window = await readWindow(testFilePath, offset + chunk * STREAM_CIPHER_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE)
-                hash.update(window)
-                const digest = hash.copy().digest("hex") // make a copy of the hash to allow it to continue rolling
-                const verified = crypto.verifyDetached(signature, Buffer.from(digest, "hex"), verifyKey)
-
-                assert.isTrue(verified)
-            }
-        })
+        assert.isTrue(await checkSignature())
     })
+
 })

@@ -195,7 +195,7 @@ class Keyring {
             let capabilities = JSON.parse(content)
             capabilities.forEach(cap => (cap.key = Buffer.from(cap.key, "hex")))
             return capabilities
-        } catch {
+        } catch (error) {
             // file does not exist. Return empty capabilities
             return []
         }
