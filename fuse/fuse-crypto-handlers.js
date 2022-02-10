@@ -4,7 +4,6 @@ const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
 const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("./file-handle")
-const HandleHolder = require("./handle-holder")
 const lock = require("fd-lock")
 const { CAPABILITY_TYPE_WRITE } = require("../constants.js")
 const { createDeleteFileContent } = require("../file-delete-utils.js")
@@ -38,8 +37,8 @@ class FuseHandlers {
         this.keyRing = keyRing
         this.debug = debug
 
-        // Maps file descriptors to FileHandles
-        this.handles = new HandleHolder()
+        // Maps file descriptors (numbers) to FileHandles
+        this.handles = new Map()
     }
 
     #resolvedPath(path) {
