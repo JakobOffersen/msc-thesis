@@ -1,7 +1,6 @@
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
-const { signDetached } = require("../crypto")
-const { createHash } = require("crypto")
+const { signDetached, Hasher } = require("../crypto")
 const {
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,
@@ -24,8 +23,8 @@ class FileHandle {
         this.writeCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_WRITE)
         this.verifyCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_VERIFY)
 
-        this.hash = createHash("sha256") // a rolling hash
-        this.shouldHashExistingMACs = true
+        this.hasher = new Hasher()
+        this.needsRehash = false
     }
 
     /**
@@ -133,6 +132,7 @@ class FileHandle {
 
         // Read any existing content from chunk and any succeeding chunks.
         // All of this is a no-op if the write is an append.
+        // TODO: Can we avoid reading all succeeding chunks and instead only read those covered by the write?
         const startChunkPosition = this.#chunkPosition(startChunkIndex)
         const startChunkPlainPosition = this.#plaintextLength(startChunkPosition)
 
@@ -151,6 +151,8 @@ class FileHandle {
         let written = 0 // Plaintext bytes written
         let writePosition = startChunkPosition + SIGNATURE_SIZE // Ciphertext position
 
+        const isAppending = (position == fileSize)
+
         while (written < combined.byteLength) {
             const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
             const plaintext = combined.subarray(written, written + toBeWritten)
@@ -164,8 +166,13 @@ class FileHandle {
             const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
             sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
 
-            // update hash used for signature
-            this.hash.update(out)
+            // Update hasher state
+            if (isAppending) {
+                this.hasher.update(out)
+            } else {
+                this.needsRehash = true
+            }
+
             // Write nonce and ciphertext
             await fsFns.write(this.fd, out, 0, out.byteLength, writePosition)
 
@@ -177,8 +184,8 @@ class FileHandle {
     }
 
     async createSignature() {
-        if (this.shouldHashExistingMACs) {
-            this.shouldHashExistingMACs = false
+        if (this.needsRehash) {
+            this.hasher = new Hasher()
 
             // Compute hash of entire file except the signature in the
             // same block size as they were written.
@@ -193,12 +200,15 @@ class FileHandle {
                 const chunkSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, ciphertextLength - read)
                 const chunk = Buffer.alloc(chunkSize)
                 await fsFns.read(this.fd, chunk, 0, chunk.byteLength, start)
-                this.hash.update(chunk)
+                this.hasher.update(chunk)
                 read += chunkSize
             }
+
+            this.needsRehash = false
         }
 
-        const hash = Buffer.from(this.hash.copy().digest("hex"), "hex") // We digest a copy to continue rolling the hash for the next writes
+        const hash = this.hasher.final()
+
         const signature = signDetached(hash, this.writeCapability.key)
         await fsFns.write(this.fd, signature, 0, signature.byteLength, 0)
     }

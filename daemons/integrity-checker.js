@@ -4,15 +4,14 @@ const EventEmitter = require("events")
 const fs = require("fs/promises")
 const { createReadStream } = require("fs")
 const queue = require("async/queue")
-const { relative, basename, dirname, extname } = require("path")
+const { basename, dirname, extname } = require("path")
 const { Dropbox } = require("dropbox")
 const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
 const { FILE_DELETE_PREFIX_BUFFER } = require("../constants")
-const { verifyCombined, verifyDetached, decryptWithPublicKey } = require("../crypto")
+const { verifyCombined, verifyDetached, decryptWithPublicKey, Hasher } = require("../crypto")
 const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
-const { createHash } = require("crypto")
 const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN } = require("../constants")
 const debounce = require("debounce")
 const { inversePromise } = require("../test/testUtil")
@@ -132,7 +131,7 @@ class IntegrityChecker extends EventEmitter {
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash from the macs in all chunks
-                const hash = await cipherHash(localPath)
+                const hash = await ciphertextHash(localPath)
                 const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
                 const fd = await fsFns.open(localPath, "r")
                 await fsFns.read(fd, signature, 0, signature.length, 0)
@@ -291,10 +290,10 @@ const dropboxContentHash = async localPath => {
     })
 }
 
-// A hash of the content computed in the same way that we compute the hash if FUSE
-const cipherHash = async localPath => {
+// A hash of the content computed in the same way that we compute the hash in FUSE
+const ciphertextHash = async localPath => {
     //TODO: Lock while reading macs?
-    const hash = createHash("sha256")
+    const hasher = new Hasher()
     const fd = await fsFns.open(localPath, "r")
 
     // Compute hash of entire file except the signature in the
@@ -309,11 +308,11 @@ const cipherHash = async localPath => {
         const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
         const block = Buffer.alloc(blockSize)
         await fsFns.read(fd, block, 0, block.length, start)
-        hash.update(block)
+        hasher.update(block)
         read += blockSize
     }
 
-    return Buffer.from(hash.digest("hex"), "hex")
+    return hasher.final()
 }
 
 module.exports = IntegrityChecker

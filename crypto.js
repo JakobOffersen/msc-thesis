@@ -100,10 +100,28 @@ function verifyCombined(signedMessage, pk) {
 }
 
 function verifyDetached(signature, message, pk) {
-    try {
-        return sodium.crypto_sign_verify_detached(signature, message, pk)
-    } catch (error) {
-        return false // 'crypto_sign_verify_detached' throws an error if the inputs are of wrong size.
+    return sodium.crypto_sign_verify_detached(signature, message, pk)
+}
+
+class Hasher {
+    constructor() {
+        this.state = Buffer.alloc(sodium.crypto_generichash_STATEBYTES)
+        sodium.crypto_generichash_init(this.state, null, sodium.crypto_generichash_BYTES)
+    }
+
+    update(buffer) {
+        sodium.crypto_generichash_update(this.state, buffer)
+    }
+
+    final() {
+        const out = Buffer.alloc(sodium.crypto_generichash_BYTES)
+
+        // Create a copy of the state so we can keep calling update on the hasher.
+        const tempState = Buffer.alloc(sodium.crypto_generichash_STATEBYTES)
+        this.state.copy(tempState)
+
+        sodium.crypto_generichash_final(tempState, out)
+        return out
     }
 }
 
@@ -119,5 +137,6 @@ module.exports = {
     signDetached,
     verifyDetached,
     signCombined,
-    verifyCombined
+    verifyCombined,
+    Hasher
 }

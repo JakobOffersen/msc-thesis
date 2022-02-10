@@ -9,12 +9,11 @@ const {
     CAPABILITY_TYPE_VERIFY
 } = require("../constants")
 const Keyring = require("../key-management/keyring")
-const { join, resolve, basename } = require("path")
+const { join, resolve } = require("path")
 const fs = require("fs/promises")
 const fsFns = require("../fsFns.js")
 const sodium = require("sodium-native")
 const crypto = require("../crypto")
-const { createHash, sign } = require("crypto")
 
 const tempDir = resolve("./tmp/")
 
@@ -43,7 +42,7 @@ async function writeTestMessage(length) {
     const writeCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_WRITE)
     const file = await fs.open(testFilePath, "w+")
 
-    const hasher = createHash("sha256")
+    const hasher = new crypto.Hasher()
 
     // Make room for the signature
     await file.write(Buffer.alloc(64))
@@ -74,7 +73,8 @@ async function writeTestMessage(length) {
     }
 
     // Create signature
-    const digest = hasher.digest()
+    const digest = hasher.final()
+
     const signature = crypto.signDetached(digest, writeCapability.key)
     await file.write(signature, 0, signature.byteLength, 0)
     await file.close()
@@ -116,10 +116,10 @@ async function checkSignature() {
     const file = await fs.open(testFilePath, "r")
 
     // Read signature from file
-    const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+    const signature = Buffer.alloc(SIGNATURE_SIZE)
     await file.read(signature, 0, signature.byteLength, 0)
 
-    const hasher = createHash("sha256")
+    const hasher = new crypto.Hasher()
 
     // Read chunks
     const fileLength = (await file.stat()).size - signature.byteLength
@@ -140,7 +140,7 @@ async function checkSignature() {
     await file.close()
 
     // Verify signature
-    const digest = hasher.digest()
+    const digest = hasher.final()
 
     return crypto.verifyDetached(signature, digest, verifyCapability.key)
 }
@@ -350,5 +350,4 @@ describe("fuse handlers", function () {
 
         assert.isTrue(await checkSignature())
     })
-
 })
