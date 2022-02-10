@@ -160,7 +160,7 @@ class FuseHandlers {
         const fd = await fsFns.open(fullPath, flags)
         const capabilities = await this.keyRing.getCapabilitiesWithPath(path)
 
-        const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
+        const filehandle = new FileHandle({ fd, capabilities })
         this.handles.set(fd, filehandle)
         return fd
     }
@@ -230,7 +230,7 @@ class FuseHandlers {
             capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
         }
 
-        const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
+        const filehandle = new FileHandle({ fd, capabilities })
         await filehandle.createSignature()
         if (this.debug) console.log(`\tprepended signature`)
         this.handles.set(fd, filehandle)

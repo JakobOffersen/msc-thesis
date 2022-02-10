@@ -17,9 +17,8 @@ class FileHandle {
      * @param {number} fd
      * @param {Buffer} key
      */
-    constructor({ fd, path, capabilities }) {
+    constructor({ fd, capabilities }) {
         this.fd = fd
-        this.path = path
 
         this.readCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_READ) //TODO: refactor to not depend on TYPE_READ
         this.writeCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_WRITE)
@@ -183,7 +182,6 @@ class FileHandle {
 
             // Compute hash of entire file except the signature in the
             // same block size as they were written.
-            // const fd = await fsFns.open(this.path, "r") // we make a new fd to ensure it is allowed to read ("r")
             const fileLength = await this.#getFileLength()
             const ciphertextLength = fileLength - SIGNATURE_SIZE
             const chunkCount = Math.ceil(ciphertextLength / STREAM_CIPHER_CHUNK_SIZE)
