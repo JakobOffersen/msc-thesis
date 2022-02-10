@@ -86,11 +86,6 @@ class FuseHandlers {
         return stat
     }
 
-    // Same as getattr but is called when someone stats a file descriptor
-    // async fgetattr(path, fd) {
-    //     return fs.fstat(fd)
-    // }
-
     async flush(path, fd) {
         return fsFns.fdatasync(fd)
     }
@@ -209,8 +204,9 @@ class FuseHandlers {
             await handle.prependSignature()
             if (this.debug) console.log(`\tprepended signature`)
             return bytesWritten
+        } catch (error) {
+            throw error
         } finally {
-            // we unlock the file in a 'finally' block to ensure that the file is unlocked even if an error is thrown.
             lock.unlock(fd)
         }
     }
