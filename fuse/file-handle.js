@@ -9,7 +9,7 @@ const {
     TOTAL_SIGNATURE_SIZE,
     CAPABILITY_TYPE_READ,
     CAPABILITY_TYPE_WRITE,
-    CAPABILITY_TYPE_VERIFY,
+    CAPABILITY_TYPE_VERIFY
 } = require("../constants")
 
 class FileHandle {
