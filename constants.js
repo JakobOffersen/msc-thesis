@@ -16,7 +16,7 @@ const CAPABILITY_TYPE_VERIFY = "verify"
 const LOCAL_KEYRING_PATH = join(__dirname, "keys", "local.keyring")
 const LOCAL_USERPAIR_PATH = join(__dirname, "keys", "user.keys")
 
-const BASE_DIR = "/Users/jakoboffersen/Dropbox" // resolve("./fsp")
+const BASE_DIR = resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")
 
 const FSP_ACCESS_TOKEN = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
