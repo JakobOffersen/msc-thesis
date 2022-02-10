@@ -1,6 +1,6 @@
 const { Dropbox } = require("dropbox")
 const { LOCAL_KEYRING_PATH, FSP_ACCESS_TOKEN, LOCAL_USERPAIR_PATH } = require("../constants")
-const KeyRing = require("../key-management/keyring")
+const Keyring = require("../key-management/keyring")
 const { encryptWithPublicKey } = require("../crypto")
 const { join, dirname, basename } = require("path")
 const { v4: uuidv4 } = require("uuid")
@@ -14,7 +14,7 @@ async function share({ path, sender, recipient, capabilityTypes }) {
 
     const keyringPath = join(dirname(LOCAL_KEYRING_PATH), sender, basename(LOCAL_KEYRING_PATH))
     const userpairPath = join(dirname(LOCAL_USERPAIR_PATH), sender, basename(LOCAL_USERPAIR_PATH))
-    const keyring = new KeyRing(keyringPath, userpairPath)
+    const keyring = new Keyring(keyringPath, userpairPath)
 
     let capabilities = await Promise.all(capabilityTypes.map(type => keyring.getCapabilityWithPathAndType(path, type, "string")))
 

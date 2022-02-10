@@ -1,7 +1,7 @@
 const assert = require("chai").assert
 const { FuseHandlers } = require("../fuse/fuse-crypto-handlers")
-const { STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("../constants")
-const KeyRing = require("../key-management/keyring")
+const { STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_READ } = require("../constants")
+const Keyring = require("../key-management/keyring")
 const { join, resolve } = require("path")
 const fs = require("fs/promises")
 const fsFns = require("../fsFns.js")
@@ -10,12 +10,13 @@ const crypto = require("../crypto")
 const { createHash } = require("crypto")
 
 const tempDir = resolve("./tmp/")
+
 const keyringPath = join(tempDir, "test.keyring")
+const keyring = new Keyring(keyringPath)
 
 const testFile = "/test.txt"
 const testFilePath = join(tempDir, testFile)
 
-const keyring = new KeyRing(keyringPath)
 const handlers = new FuseHandlers(tempDir, keyring)
 
 /* Helpers */

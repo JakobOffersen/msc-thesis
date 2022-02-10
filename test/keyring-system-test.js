@@ -7,7 +7,7 @@ const crypto = require("../crypto")
 const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilities } = require("../key-management/capability-utils")
 const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 const { v4: uuidv4 } = require("uuid")
-const KeyRing = require("./keyring")
+const Keyring = require("./keyring")
 
 const dropboxAccessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
 const testDirName = "keyring-system-test"

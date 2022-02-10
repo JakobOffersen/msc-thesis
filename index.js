@@ -2,7 +2,7 @@ const Fuse = require("fuse-native")
 const { promisify } = require("util")
 const { beforeShutdown, callbackifyHandlersObj } = require("./util")
 const { FuseHandlers } = require("./fuse/fuse-crypto-handlers")
-const KeyRing = require("./key-management/keyring")
+const Keyring = require("./key-management/keyring")
 const { LOCAL_KEYRING_PATH, BASE_DIR, MOUNT_DIR, LOCAL_USERPAIR_PATH } = require("./constants")
 const { dirname, join, basename } = require("path")
 const { makeUser } = require("./make-user")
@@ -12,15 +12,15 @@ const { makeUser } = require("./make-user")
     const username = args[0] || ""
     const keyringPath = join(dirname(LOCAL_KEYRING_PATH), username, basename(LOCAL_KEYRING_PATH))
     const userpairPath = join(dirname(LOCAL_USERPAIR_PATH), username, basename(LOCAL_USERPAIR_PATH))
-    const keyRing = new KeyRing(keyringPath, userpairPath)
+    const keyring = new Keyring(keyringPath, userpairPath)
 
-    const userCreated = await keyRing.hasUserKeyPair()
+    const userCreated = await keyring.hasUserKeyPair()
 
     if (!userCreated) {
-        await makeUser(keyRing) // this creates the users key pair and postal box
+        await makeUser(keyring) // this creates the users key pair and postal box
     }
 
-    const handlers = new FuseHandlers(BASE_DIR, keyRing, { debug: false })
+    const handlers = new FuseHandlers(BASE_DIR, keyring, { debug: false })
     const cbHandlers = callbackifyHandlersObj(handlers)
 
     const opts = {

@@ -32,9 +32,9 @@ function messageSize(ciphertextBytes) {
 }
 
 class FuseHandlers {
-    constructor(baseDir, keyRing, { debug = false } = {}) {
+    constructor(baseDir, keyring, { debug = false } = {}) {
         this.baseDir = baseDir
-        this.keyRing = keyRing
+        this.keyring = keyring
         this.debug = debug
 
         // Maps file descriptors (numbers) to FileHandles
@@ -158,7 +158,7 @@ class FuseHandlers {
         if (this.debug) console.log(`open ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
-        const capabilities = await this.keyRing.getCapabilitiesWithPath(path)
+        const capabilities = await this.keyring.getCapabilitiesWithPath(path)
 
         const filehandle = new FileHandle({ fd, capabilities })
         this.handles.set(fd, filehandle)
@@ -225,9 +225,9 @@ class FuseHandlers {
         const cleanedBasename = basename(path).split(".").slice(0, 2).join(".") // remove potential suffixes starting with "." Eg "/picture.jpg.sb-ab52335b-nePMlX" becomes "picture.jpg"
         let capabilities
         if (parentName.startsWith(cleanedBasename)) {
-            capabilities = await this.keyRing.getCapabilitiesWithPath("/" + cleanedBasename)
+            capabilities = await this.keyring.getCapabilitiesWithPath("/" + cleanedBasename)
         } else {
-            capabilities = await this.keyRing.createNewCapabilitiesForRelativePath(path)
+            capabilities = await this.keyring.createNewCapabilitiesForRelativePath(path)
         }
 
         const filehandle = new FileHandle({ fd, capabilities })
@@ -245,7 +245,7 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         if (ignored(path)) return await fs.unlink(fullPath)
 
-        const writeCapability = await this.keyRing.getCapabilityWithPathAndType(path, CAPABILITY_TYPE_WRITE)
+        const writeCapability = await this.keyring.getCapabilityWithPathAndType(path, CAPABILITY_TYPE_WRITE)
         if (!writeCapability) return // only clients with write-capability are allowed to delete a file.
 
         const content = await createDeleteFileContent({ localPath: fullPath, remotePath: path, writeKey: writeCapability.key })

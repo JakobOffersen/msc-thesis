@@ -6,9 +6,9 @@ const { clone, cloneAll, generateCapabilitiesForPath } = require("./capability-u
 const { makeEncryptionKeyPair } = require("../crypto")
 const ignore = ["/.DS_Store"]
 
-class KeyRing {
-    constructor(keyRingPath, userPairPath) {
-        this.keyRingPath = keyRingPath
+class Keyring {
+    constructor(keyringPath, userPairPath) {
+        this.keyringPath = keyringPath
         this.userPairPath = userPairPath
     }
 
@@ -191,7 +191,7 @@ class KeyRing {
 
     async _read() {
         try {
-            const content = await fs.readFile(this.keyRingPath)
+            const content = await fs.readFile(this.keyringPath)
             let capabilities = JSON.parse(content)
             capabilities.forEach(cap => (cap.key = Buffer.from(cap.key, "hex")))
             return capabilities
@@ -205,10 +205,10 @@ class KeyRing {
         try {
             // convert all keys to 'hex'-strings before saving
             const clone = cloneAll(capabilities, "string")
-            await fs.writeFile(this.keyRingPath, JSON.stringify(clone, null, 2))
+            await fs.writeFile(this.keyringPath, JSON.stringify(clone, null, 2))
         } catch {
             // the path does not exist. create it
-            const dirpath = dirname(this.keyRingPath)
+            const dirpath = dirname(this.keyringPath)
             await fs.mkdir(dirpath, { recursive: true })
             await this._write(capabilities)
         }
@@ -245,4 +245,4 @@ class KeyRing {
     }
 }
 
-module.exports = KeyRing
+module.exports = Keyring
