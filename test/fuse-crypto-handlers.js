@@ -15,7 +15,7 @@ const keyringPath = join(tempDir, "test.keyring")
 const testFile = "/test.txt"
 const testFilePath = join(tempDir, testFile)
 
-const keyring = new KeyRing(keyringPath, tempDir)
+const keyring = new KeyRing(keyringPath)
 const handlers = new FuseHandlers(tempDir, keyring)
 
 /* Helpers */

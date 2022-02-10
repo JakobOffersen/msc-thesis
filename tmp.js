@@ -1,23 +1,15 @@
+const { join, basename, dirname } = require("path")
 const fs = require("fs/promises")
-const { Dropbox } = require("dropbox")
-const { FSP_ACCESS_TOKEN } = require("./constants")
-const { join } = require("path")
+const KeyRing = require("./key-management/keyring")
+const { LOCAL_KEYRING_PATH, LOCAL_USERPAIR_PATH } = require("./constants")
+const crypto = require("./crypto")
 
-const db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
-const basedir = "/Users/jakoboffersen/Dropbox"
-const path = "1mb.txt"
+const path = "/Users/jakoboffersen/Dropbox/users/fc467f399e9340646e8f599420f0630eb81bd1ee7d5c5df98202612c79eee10e/78f07f41-a7cc-473b-8c40-f1d69bd69a27.txt"
+const keyring = new KeyRing(LOCAL_KEYRING_PATH, LOCAL_USERPAIR_PATH)
 
-// fs.readFile(join(basedir, path)).then(content => {
-//     db.filesListRevisions({ path: "/" + path, mode: "path" }).then(response => {
-//         console.dir(content, { depth: null })
-//         console.log(response.result.entries[0].rev)
-//     })
-// })
-
-db.filesListRevisions({ path: "/" + path, mode: "path" }).then(response => {
-    response.result.entries.forEach(e => console.log(e.rev))
-})
-
-// db.filesDownload({ path: "rev:" + "015d780afc8aac500000002530d00f0" }).then(response => {
-//     console.dir(response.result)
-// })
+;(async () => {
+    const { sk, pk } = await keyring.getUserKeyPair()
+    const content = await fs.readFile(path)
+    const decrypted = crypto.decryptWithPublicKey(content, pk, sk)
+    console.log(decrypted.toString())
+})()

@@ -4,7 +4,6 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-
         {
             "type": "pwa-node",
             "request": "launch",
@@ -12,7 +11,47 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "./daemons/integrity-daemon.js"
+            "program": "./daemons/integrity-daemon.js",
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "Launch Daemon (Alice)",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "./daemons/integrity-daemon.js",
+            "args": ["alice"]
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "Launch Daemon (Bob)",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "./daemons/integrity-daemon.js",
+            "args": ["bob"]
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "Launch FUSE (Alice)",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "index.js",
+            "args": ["alice"]
+        },
+        {
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "Launch FUSE (Bob)",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "program": "index.js",
+            "args": ["bob"]
         },
         {
             "type": "pwa-node",

@@ -187,3 +187,4 @@ package-lock.json
 /test/tmp/*
 
 *.keyring
+*.keys
