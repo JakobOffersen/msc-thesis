@@ -13,8 +13,8 @@ const CAPABILITY_TYPE_READ = "read"
 const CAPABILITY_TYPE_WRITE = "write"
 const CAPABILITY_TYPE_VERIFY = "verify"
 
-const LOCAL_KEYRING_PATH = join(__dirname, "key-management", "local.keyring")
-const LOCAL_USERPAIR_PATH = join(__dirname, "key-management", "user.keys")
+const LOCAL_KEYRING_PATH = join(__dirname, "keys", "local.keyring")
+const LOCAL_USERPAIR_PATH = join(__dirname, "keys", "user.keys")
 
 const BASE_DIR = "/Users/jakoboffersen/Dropbox" // resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")

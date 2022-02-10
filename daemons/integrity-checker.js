@@ -10,10 +10,10 @@ const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
 const { FILE_DELETE_PREFIX_BUFFER } = require("../constants")
-const { verifyCombined, verifyDetached } = require("../crypto")
+const { verifyCombined, verifyDetached, decryptWithPublicKey } = require("../crypto")
 const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
 const { createHash } = require("crypto")
-const { STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE, SIGNATURE_MARK } = require("../constants")
+const { STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE, SIGNATURE_MARK, FSP_ACCESS_TOKEN } = require("../constants")
 const debounce = require("debounce")
 const { inversePromise } = require("../test/testUtil")
 
@@ -32,11 +32,12 @@ class IntegrityChecker extends EventEmitter {
     static CONFLICT_RESOLUTION_SUCCEEDED = "conflict-resolution-succeeded"
     static EQUIVALENT_CONFLICT_IS_PENDING = "equivalent-conflict-is-pending"
 
-    constructor({ watchPath, keyring }) {
+    constructor({ watchPath, keyring, username }) {
         super()
-        this._db = new Dropbox({ accessToken: "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W" })
+        this._db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
         this._watchPath = watchPath
         this._keyring = keyring
+        this._username = username
 
         // setup watcher
         this._watcher = chokidar.watch(watchPath, {
@@ -45,9 +46,10 @@ class IntegrityChecker extends EventEmitter {
                 return (
                     path.match(/(^|[\/\\])\../) ||
                     basename(dirname(path)).split(".").length > 2 || // eg "file3.txt.sb-ab52335b-BlLaP1/file3.txt"
-                    (basename(path).split(".").length > 2 && extname(path) !== ".deleted") // eg "/milky-way-nasa.jpg.sb-ab52335b-jqZvPa/milky-way-nasa.jpg.sb-ab52335b-j7X3TY"
+                    (basename(path).split(".").length > 2 && extname(path) !== ".deleted") || // eg "/milky-way-nasa.jpg.sb-ab52335b-jqZvPa/milky-way-nasa.jpg.sb-ab52335b-j7X3TY"
+                    (path.includes("/users/") && !path.includes("/users/" + this._username)) // ignore all postal boxes except for your own postal box. TODO: make into regex for better performance?
                 )
-            },
+            }.bind(this),
             persistent: true // indicates that chokidar should continue the process as long as files are watched
         })
         // Chokiar emits 'add' for all existing files in the watched directory
@@ -235,14 +237,20 @@ class IntegrityChecker extends EventEmitter {
     }
 
     _onAdd(localPath) {
-        this._debouncePushJob(localPath, { eventType: "add" })
+        if (localPath.includes("/users/" + this._username)) {
+            this._checkPostalbox(localPath)
+        } else {
+            this._debouncePushJob(localPath, { eventType: "add" })
+        }
     }
 
     _onChange(localPath) {
+        if (localPath.includes("/users/" + this._username)) return // ignore changes made in ones own postal box
         this._debouncePushJob(localPath, { eventType: "change" })
     }
 
     _onUnlink(localPath) {
+        if (localPath.includes("/users/" + this._username)) return // ignore deletes made in ones own postal box
         this._debouncePushJob(localPath, { eventType: "unlink" })
     }
 
@@ -251,6 +259,22 @@ class IntegrityChecker extends EventEmitter {
         if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 1000))
         const debounced = this.debouncers.get(localPath)
         debounced(...args)
+    }
+
+    async _checkPostalbox(localPath) {
+        try {
+            const { sk, pk } = await this._keyring.getUserKeyPair()
+            const content = await fs.readFile(localPath)
+            const decrypted = decryptWithPublicKey(content, pk, sk)
+            const capabilities = JSON.parse(decrypted)
+
+            for (const capability of capabilities) {
+                await this._keyring.addCapability(capability)
+                console.log(`added capability ${capability.type} for ${capability.path} to keyring`)
+            }
+        } catch (error) {
+            console.log(`checkPostalbox ERROR: ${error}`)
+        }
     }
 }
 

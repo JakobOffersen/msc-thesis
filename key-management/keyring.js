@@ -1,5 +1,5 @@
 const fs = require("fs/promises")
-const { relative, resolve } = require("path")
+const { relative, resolve, dirname } = require("path")
 const { DateTime } = require("luxon")
 const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 const { clone, cloneAll, generateCapabilitiesForPath } = require("./capability-utils")
@@ -12,6 +12,15 @@ class KeyRing {
         this.userPairPath = userPairPath
     }
 
+    async hasUserKeyPair() {
+        try {
+            await fs.access(this.userPairPath)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     async makeUserKeyPair() {
         const { sk, pk } = makeEncryptionKeyPair()
         const pair = {
@@ -20,13 +29,23 @@ class KeyRing {
         }
 
         const stringified = JSON.stringify(pair, null, 4)
-        await fs.writeFile(this.userPairPath, stringified)
+        try {
+            await fs.writeFile(this.userPairPath, stringified)
+        } catch {
+            // path does not exist. create it
+            const parent = dirname(this.userPairPath)
+            await fs.mkdir(parent, { recursive: true })
+            await fs.writeFile(this.userPairPath, stringified)
+        }
     }
 
-    async getUserPublicKey() {
+    async getUserKeyPair() {
         const content = await fs.readFile(this.userPairPath)
-        const { pk } = JSON.parse(content)
-        return Buffer.from(pk, "hex")
+        const { sk, pk } = JSON.parse(content)
+        return {
+            sk: Buffer.from(sk, "hex"),
+            pk: Buffer.from(pk, "hex")
+        }
     }
 
     async createNewCapabilitiesForRelativePath(relativePath) {
@@ -183,9 +202,16 @@ class KeyRing {
     }
 
     async _write(capabilities) {
-        // convert all keys to 'hex'-strings before saving
-        const clone = cloneAll(capabilities, "string")
-        await fs.writeFile(this.keyRingPath, JSON.stringify(clone, null, 2))
+        try {
+            // convert all keys to 'hex'-strings before saving
+            const clone = cloneAll(capabilities, "string")
+            await fs.writeFile(this.keyRingPath, JSON.stringify(clone, null, 2))
+        } catch {
+            // the path does not exist. create it
+            const dirpath = dirname(this.keyRingPath)
+            await fs.mkdir(dirpath, { recursive: true })
+            await this._write(capabilities)
+        }
     }
 
     _capabilityIsValid(capability) {

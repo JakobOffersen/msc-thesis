@@ -1,30 +1,34 @@
 const { Dropbox } = require("dropbox")
-const { LOCAL_KEYRING_PATH, BASE_DIR, FSP_ACCESS_TOKEN, CAPABILITY_TYPE_READ, CAPABILITY_TYPE_VERIFY, CAPABILITY_TYPE_WRITE } = require("../constants")
+const { LOCAL_KEYRING_PATH, FSP_ACCESS_TOKEN, LOCAL_USERPAIR_PATH } = require("../constants")
 const KeyRing = require("../key-management/keyring")
 const { encryptWithPublicKey } = require("../crypto")
-const { join } = require("path")
-const { v4: uuidv4 } = require('uuid');
+const { join, dirname, basename } = require("path")
+const { v4: uuidv4 } = require("uuid")
 
 const args = process.argv.slice(2)
-const keyring = new KeyRing(LOCAL_KEYRING_PATH)
 const db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
 
-async function share({ path, recipient, capabilityTypes = [CAPABILITY_TYPE_READ, CAPABILITY_TYPE_VERIFY, CAPABILITY_TYPE_WRITE] } = {}) {
+async function share({ path, sender, recipient, capabilityTypes }) {
     if (!Buffer.isBuffer(recipient)) recipient = Buffer.from(recipient, "hex")
+    sender = sender || ""
 
-    const capabilities = await Promise.all(
-        capabilityTypes.map(type => keyring.getCapabilityWithPathAndType(path, type))
-    )
+    const keyringPath = join(dirname(LOCAL_KEYRING_PATH), sender, basename(LOCAL_KEYRING_PATH))
+    const userpairPath = join(dirname(LOCAL_USERPAIR_PATH), sender, basename(LOCAL_USERPAIR_PATH))
+    const keyring = new KeyRing(keyringPath, userpairPath)
+
+    let capabilities = await Promise.all(capabilityTypes.map(type => keyring.getCapabilityWithPathAndType(path, type, "string")))
 
     const cipher = encryptWithPublicKey(JSON.stringify(capabilities), recipient)
 
     const filename = uuidv4()
     const recipientPostalBox = join("/users", recipient.toString("hex"))
-    const filepath = join(recipientPostalBox, filename)
+    const filepath = join(recipientPostalBox, filename + ".txt")
 
     await db.filesUpload({ path: filepath, mode: "overwrite", contents: cipher })
 }
 
-const [path, recipient, ...capabilityTypes] = args
-console.log(path, recipient)
-console.log(capabilityTypes)
+const [path, sender, recipient, ...capabilityTypes] = args
+
+share({ path, sender, recipient, capabilityTypes }).then(() => {
+    console.log(`shared ${capabilityTypes} for ${path} with user ${recipient}`)
+})

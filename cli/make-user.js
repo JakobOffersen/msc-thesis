@@ -1,18 +1,11 @@
-const crypto = require("../crypto")
-const { Dropbox } = require("dropbox")
-const { FSP_ACCESS_TOKEN, LOCAL_KEYRING_PATH, BASE_DIR, LOCAL_USERPAIR_PATH } = require("../constants")
-const Keyring = require("../key-management/keyring")
-const { join } = require("path")
+const { LOCAL_KEYRING_PATH, LOCAL_USERPAIR_PATH } = require("../constants")
+const { join, dirname, basename } = require("path")
+const KeyRing = require("../key-management/keyring")
+const { makeUser } = require("../make-user")
 
-const db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
-const keyring = new Keyring(LOCAL_KEYRING_PATH, LOCAL_USERPAIR_PATH)
-
-;(async () => {
-    await keyring.makeUserKeyPair()
-    const pk = (await keyring.getUserPublicKey()).toString("hex")
-    console.log(pk)
-
-    const postalbox = join("/users", pk)
-    await db.filesCreateFolderV2({ path: postalbox })
-    console.log(`created postal box ${postalbox}`)
-})()
+const args = process.argv.slice(2)
+const username = args[0] || ""
+const keyringPath = join(dirname(LOCAL_KEYRING_PATH), username, basename(LOCAL_KEYRING_PATH))
+const userpairPath = join(dirname(LOCAL_USERPAIR_PATH), username, basename(LOCAL_USERPAIR_PATH))
+const keyring = new KeyRing(keyringPath, userpairPath)
+makeUser(keyring).then(() => console.log("done"))
