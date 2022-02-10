@@ -3,7 +3,7 @@ const { join, basename, dirname, extname } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
-const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE } = require("./file-handle")
+const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("./file-handle")
 const HandleHolder = require("./handle-holder")
 const lock = require("fd-lock")
 const { CAPABILITY_TYPE_WRITE } = require("../constants.js")
@@ -24,7 +24,7 @@ function ignored(path) {
  * @returns size in bytes
  */
 function messageSize(ciphertextBytes) {
-    ciphertextBytes = ciphertextBytes - TOTAL_SIGNATURE_SIZE
+    ciphertextBytes = ciphertextBytes - SIGNATURE_SIZE
 
     const blockCount = Math.ceil(ciphertextBytes / STREAM_CIPHER_CHUNK_SIZE)
     const tagSizes = blockCount * (sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES)
@@ -109,13 +109,13 @@ class FuseHandlers {
     async truncate(path, size) {
         if (this.debug) console.log(`truncate ${path} size ${size}`)
         const fullPath = this.#resolvedPath(path)
-        fsFns.truncate(fullPath, size + TOTAL_SIGNATURE_SIZE)
+        fsFns.truncate(fullPath, size + SIGNATURE_SIZE)
         //TODO: her skal vi skrive igen for at signaturen passer
         //TODO: Her skal vi tjekke om brugeren har skrive-rettigheder
     }
 
     async ftruncate(path, fd, size) {
-        return fsFns.ftruncate(fd, size + TOTAL_SIGNATURE_SIZE)
+        return fsFns.ftruncate(fd, size + SIGNATURE_SIZE)
     }
 
     // async readlink(path) {

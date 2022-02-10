@@ -13,7 +13,7 @@ const { FILE_DELETE_PREFIX_BUFFER } = require("../constants")
 const { verifyCombined, verifyDetached, decryptWithPublicKey } = require("../crypto")
 const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
 const { createHash } = require("crypto")
-const { STREAM_CIPHER_CHUNK_SIZE, TOTAL_SIGNATURE_SIZE, SIGNATURE_MARK, FSP_ACCESS_TOKEN } = require("../constants")
+const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN } = require("../constants")
 const debounce = require("debounce")
 const { inversePromise } = require("../test/testUtil")
 
@@ -135,7 +135,7 @@ class IntegrityChecker extends EventEmitter {
                 const hash = await cipherHash(localPath)
                 const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
                 const fd = await fsFns.open(localPath, "r")
-                await fsFns.read(fd, signature, 0, signature.length, SIGNATURE_MARK.length)
+                await fsFns.read(fd, signature, 0, signature.length, 0)
                 const verified = verifyDetached(signature, hash, verifyCapability.key)
 
                 return verified
@@ -299,9 +299,9 @@ const cipherHash = async localPath => {
 
     // Compute hash of entire file except the signature in the
     // same block size as they were written.
-    const cipherSize = (await fsFns.fstat(fd)).size - TOTAL_SIGNATURE_SIZE
+    const cipherSize = (await fsFns.fstat(fd)).size - SIGNATURE_SIZE
     const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
-    const offset = TOTAL_SIGNATURE_SIZE
+    const offset = SIGNATURE_SIZE
 
     let read = 0
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {

@@ -5,8 +5,7 @@ const { createHash } = require("crypto")
 const {
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,
-    SIGNATURE_MARK,
-    TOTAL_SIGNATURE_SIZE,
+    SIGNATURE_SIZE,
     CAPABILITY_TYPE_READ,
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_VERIFY
@@ -44,7 +43,7 @@ class FileHandle {
     }
 
     #plaintextLengthFromCiphertextAndSignatureSize(ciphertextAndSignatureBytes) {
-        return this.#plaintextLengthFromCiphertextSize(ciphertextAndSignatureBytes - TOTAL_SIGNATURE_SIZE)
+        return this.#plaintextLengthFromCiphertextSize(ciphertextAndSignatureBytes - SIGNATURE_SIZE)
     }
 
     #plaintextLengthFromCiphertextSize(ciphertextBytes) {
@@ -58,9 +57,9 @@ class FileHandle {
         //TODO: When reading from start to finish, we load two chunks every time, but J thinks we only need to load one. Check if this is the case
         let fileSize = (await fsFns.fstat(this.fd)).size
 
-        const start = this.#chunkPosition(from) + TOTAL_SIGNATURE_SIZE
+        const start = this.#chunkPosition(from) + SIGNATURE_SIZE
         // The last chunk of the file may be less than full size.
-        const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE + TOTAL_SIGNATURE_SIZE, fileSize)
+        const end = Math.min(this.#chunkPosition(to) + STREAM_CIPHER_CHUNK_SIZE + SIGNATURE_SIZE, fileSize)
         const length = end - start
         const ciphertext = Buffer.alloc(length)
 
@@ -138,7 +137,7 @@ class FileHandle {
         // Write chunks
         // The file descriptor is currently pointing at any
         let written = 0 // Plaintext bytes written
-        let writePosition = startChunkPosition + TOTAL_SIGNATURE_SIZE // Ciphertext position
+        let writePosition = startChunkPosition + SIGNATURE_SIZE // Ciphertext position
 
         while (written < combined.byteLength) {
             const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
@@ -172,9 +171,9 @@ class FileHandle {
             // Compute hash of entire file except the signature in the
             // same block size as they were written.
             const fd = await fsFns.open(this.path, "r") // we make a new fd to ensure it is allowed to read ("r")
-            const cipherSize = (await fsFns.fstat(fd)).size - TOTAL_SIGNATURE_SIZE
+            const cipherSize = (await fsFns.fstat(fd)).size - SIGNATURE_SIZE
             const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
-            const offset = TOTAL_SIGNATURE_SIZE
+            const offset = SIGNATURE_SIZE
 
             const read = 0
             for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
@@ -189,9 +188,7 @@ class FileHandle {
 
         const hash = Buffer.from(this.hash.copy().digest("hex"), "hex") // We digest a copy to continue rolling the hash for the next writes
         const signature = signDetached(hash, this.writeCapability.key)
-        const combined = Buffer.concat([SIGNATURE_MARK, signature])
-        // console.log(`sig ${basename(this.path)} ${signature.toString("hex")}`)
-        await fsFns.write(this.fd, combined, 0, combined.byteLength, 0)
+        await fsFns.write(this.fd, signature, 0, signature.byteLength, 0)
     }
 }
 
@@ -199,5 +196,5 @@ module.exports = {
     FileHandle,
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,
-    TOTAL_SIGNATURE_SIZE
+    SIGNATURE_SIZE
 }

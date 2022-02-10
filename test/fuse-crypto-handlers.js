@@ -1,6 +1,6 @@
 const assert = require("chai").assert
 const { FuseHandlers } = require("../fuse/fuse-crypto-handlers")
-const { STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_MARK, TOTAL_SIGNATURE_SIZE } = require("../constants")
+const { STREAM_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("../constants")
 const KeyRing = require("../key-management/keyring")
 const { join, resolve } = require("path")
 const fs = require("fs/promises")
@@ -274,7 +274,7 @@ describe("fuse handlers", function () {
         async function readSignature(path) {
             const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
             const fd = await fsFns.open(path, "r")
-            await fsFns.read(fd, signature, 0, signature.length, SIGNATURE_MARK.length) // offset by the signature mark
+            await fsFns.read(fd, signature, 0, signature.length, 0)
             return signature
         }
 
@@ -315,7 +315,7 @@ describe("fuse handlers", function () {
                 const half = message.subarray(position, position + STREAM_CHUNK_SIZE)
                 await handlers.write(testFile, fd, half, half.length, position)
                 const signature = await readSignature(testFilePath)
-                const offset = TOTAL_SIGNATURE_SIZE // avoid reading the signare since the signature should not be a part of the hash of the content to be signed
+                const offset = SIGNATURE_SIZE // avoid reading the signare since the signature should not be a part of the hash of the content to be signed
                 const window = await readWindow(testFilePath, offset + chunk * STREAM_CIPHER_CHUNK_SIZE, STREAM_CIPHER_CHUNK_SIZE)
                 hash.update(window)
                 const digest = hash.copy().digest("hex") // make a copy of the hash to allow it to continue rolling
