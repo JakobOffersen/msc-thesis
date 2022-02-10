@@ -106,7 +106,7 @@ class FuseHandlers {
     async readdir(path) {
         const fullPath = this.#resolvedPath(path)
         const files = await fs.readdir(fullPath)
-        return files.filter(file => extname(file) !== ".deleted")
+        return files.filter(file => extname(file) !== ".deleted" && file !== "users") // ignore .deleted files and /users/* (postal boxes)
     }
 
     async truncate(path, size) {
