@@ -175,7 +175,7 @@ class FileHandle {
             const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
             const offset = SIGNATURE_SIZE
 
-            const read = 0
+            let read = 0
             for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
                 const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
                 const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
