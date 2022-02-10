@@ -206,11 +206,9 @@ class FuseHandlers {
         try {
             const bytesWritten = await handle.write(buffer, length, position)
             if (this.debug) console.log(`\tbytes written ${bytesWritten}`)
-            await handle.prependSignature()
-            if (this.debug) console.log(`\tprepended signature`)
+            await handle.createSignature()
+            if (this.debug) console.log(`\created signature`)
             return bytesWritten
-        } catch (error) {
-            throw error
         } finally {
             lock.unlock(fd)
         }
@@ -234,7 +232,7 @@ class FuseHandlers {
         }
 
         const filehandle = new FileHandle({ fd, path: fullPath, capabilities })
-        await filehandle.prependSignature()
+        await filehandle.createSignature()
         if (this.debug) console.log(`\tprepended signature`)
         this.handles.set(fd, filehandle)
         return fd

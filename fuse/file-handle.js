@@ -29,10 +29,34 @@ class FileHandle {
         this.shouldHashExistingMACs = true
     }
 
-    async #getPlainFileSize() {
-        return this.#plaintextLengthFromCiphertextAndSignatureSize((await fsFns.fstat(this.fd)).size)
+    /**
+     * Returns the length of the file on disk. This includes signature and ciphertext.
+     */
+    async #getFileLength() {
+        const stat = await fsFns.fstat(this.fd)
+        return stat.size
     }
 
+    /**
+     * Returns the length of the plaintext (i.e. the file after it has been decrypted).
+     */
+    async #getPlaintextLength() {
+        const fileLength = await this.#getFileLength()
+        const ciphertextLength = fileLength - SIGNATURE_SIZE
+        return this.#plaintextLength(ciphertextLength)
+    }
+
+    #plaintextLength(ciphertextLength) {
+        // Each chunk has metadata in the form of an authentication tag (MAC) and a nonce.
+        const metadataSize = sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
+
+        // Compute how many chunks are in the encrypted file.
+        const chunkCount = Math.ceil(ciphertextLength / STREAM_CIPHER_CHUNK_SIZE)
+        
+        return ciphertextLength - chunkCount * metadataSize
+    }
+
+    // Returns the index of the chunk that a position in the plaintext corresponds to.
     #ciphertextChunkIndex(plaintextPosition) {
         return Math.floor(plaintextPosition / STREAM_CHUNK_SIZE)
     }
@@ -42,20 +66,9 @@ class FileHandle {
         return index * STREAM_CIPHER_CHUNK_SIZE
     }
 
-    #plaintextLengthFromCiphertextAndSignatureSize(ciphertextAndSignatureBytes) {
-        return this.#plaintextLengthFromCiphertextSize(ciphertextAndSignatureBytes - SIGNATURE_SIZE)
-    }
-
-    #plaintextLengthFromCiphertextSize(ciphertextBytes) {
-        const blockCount = Math.ceil(ciphertextBytes / STREAM_CIPHER_CHUNK_SIZE)
-        const tagSizes = blockCount * (sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES)
-
-        return ciphertextBytes - tagSizes
-    }
-
     async #readChunks(from, to) {
         //TODO: When reading from start to finish, we load two chunks every time, but J thinks we only need to load one. Check if this is the case
-        let fileSize = (await fsFns.fstat(this.fd)).size
+        const fileSize = await this.#getFileLength()
 
         const start = this.#chunkPosition(from) + SIGNATURE_SIZE
         // The last chunk of the file may be less than full size.
@@ -79,7 +92,7 @@ class FileHandle {
         const ciphertext = await this.#readChunks(startChunkIndex, endChunkIndex)
 
         // Decrypt chunks
-        const plaintextLength = this.#plaintextLengthFromCiphertextSize(ciphertext.byteLength)
+        const plaintextLength = this.#plaintextLength(ciphertext.byteLength)
         const plaintext = Buffer.alloc(plaintextLength)
 
         const chunks = Math.ceil(plaintextLength / STREAM_CHUNK_SIZE)
@@ -94,7 +107,7 @@ class FileHandle {
             const encrypted = inBuffer.subarray(sodium.crypto_secretbox_NONCEBYTES)
 
             const outStart = chunk * STREAM_CHUNK_SIZE
-            const outEnd = outStart + this.#plaintextLengthFromCiphertextSize(chunkLength)
+            const outEnd = outStart + this.#plaintextLength(chunkLength)
             const outBuffer = plaintext.subarray(outStart, outEnd)
             const res = sodium.crypto_secretbox_open_easy(outBuffer, encrypted, nonce, this.readCapability.key)
             if (!res) throw new Error("Decryption failed")
@@ -113,7 +126,7 @@ class FileHandle {
     async write(buffer, length, position) {
         if (length === 0 || !this.readCapability || !this.writeCapability) return 0
 
-        const fileSize = await this.#getPlainFileSize()
+        const fileSize = await this.#getPlaintextLength()
         if (position > fileSize) throw Error(`Out of bounds write`)
 
         // Figure out in which chunk the write starts
@@ -122,7 +135,7 @@ class FileHandle {
         // Read any existing content from chunk and any succeeding chunks.
         // All of this is a no-op if the write is an append.
         const startChunkPosition = this.#chunkPosition(startChunkIndex)
-        const startChunkPlainPosition = this.#plaintextLengthFromCiphertextSize(startChunkPosition)
+        const startChunkPlainPosition = this.#plaintextLength(startChunkPosition)
 
         const readLength = fileSize - startChunkPlainPosition
         const existing = Buffer.alloc(readLength)
@@ -164,25 +177,26 @@ class FileHandle {
         return length
     }
 
-    async prependSignature() {
+    async createSignature() {
         if (this.shouldHashExistingMACs) {
             this.shouldHashExistingMACs = false
 
             // Compute hash of entire file except the signature in the
             // same block size as they were written.
-            const fd = await fsFns.open(this.path, "r") // we make a new fd to ensure it is allowed to read ("r")
-            const cipherSize = (await fsFns.fstat(fd)).size - SIGNATURE_SIZE
-            const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
+            // const fd = await fsFns.open(this.path, "r") // we make a new fd to ensure it is allowed to read ("r")
+            const fileLength = await this.#getFileLength()
+            const ciphertextLength = fileLength - SIGNATURE_SIZE
+            const chunkCount = Math.ceil(ciphertextLength / STREAM_CIPHER_CHUNK_SIZE)
             const offset = SIGNATURE_SIZE
 
             let read = 0
             for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
                 const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
-                const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
-                const block = Buffer.alloc(blockSize)
-                await fsFns.read(fd, block, 0, block.length, start)
-                this.hash.update(block)
-                read += blockSize
+                const chunkSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, ciphertextLength - read)
+                const chunk = Buffer.alloc(chunkSize)
+                await fsFns.read(this.fd, chunk, 0, chunk.byteLength, start)
+                this.hash.update(chunk)
+                read += chunkSize
             }
         }
 
