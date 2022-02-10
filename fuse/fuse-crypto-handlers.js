@@ -114,6 +114,7 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         fsFns.truncate(fullPath, size + TOTAL_SIGNATURE_SIZE)
         //TODO: her skal vi skrive igen for at signaturen passer
+        //TODO: Her skal vi tjekke om brugeren har skrive-rettigheder
     }
 
     async ftruncate(path, fd, size) {
@@ -199,6 +200,8 @@ class FuseHandlers {
         if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
         if (this.debug) console.log(`write ${path} len ${length} pos ${position}`)
         const handle = this.handles.get(fd)
+
+        if (!handle.writeCapability) throw new FSError(Fuse.ENOENT) // the user is not allowed to perform the operation. 
 
         // We lock the file to ensure no other process (e.g. the daemon) interacts with the
         // file in the time-frame between writing the content and writing the signature
