@@ -191,11 +191,7 @@ class FileHandle {
         const signature = signDetached(hash, this.writeCapability.key)
         const combined = Buffer.concat([SIGNATURE_MARK, signature])
         // console.log(`sig ${basename(this.path)} ${signature.toString("hex")}`)
-        await this.#prepend(combined)
-    }
-
-    async #prepend(content) {
-        await fsFns.write(this.fd, content, 0, content.length, 0)
+        await fsFns.write(this.fd, combined, 0, combined.byteLength, 0)
     }
 }
 
