@@ -80,7 +80,9 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         const stat = await fs.stat(fullPath)
         // Overwrite the size of the ciphertext with the size of the plaintext
-        if (stat.isFile()) stat.size = messageSize(stat.size)
+        if (stat.isFile()) {
+            stat.size = messageSize(stat.size)
+        }
 
         if (this.debug) console.log(`getattr ${path}, size ${stat.size}`)
         return stat
@@ -254,7 +256,7 @@ class FuseHandlers {
     }
 
     async rename(src, dest) {
-        await fs.rename(this.#resolvedPath(src), this.#resolvedPath(dest))
+        return fs.rename(this.#resolvedPath(src), this.#resolvedPath(dest))
     }
 
     // async link(src, dest) {
