@@ -16,7 +16,7 @@ class FileHandle {
      * @param {number} fd
      * @param {Buffer} key
      */
-    constructor({ fd, capabilities }) {
+    constructor(fd, capabilities) {
         this.fd = fd
 
         this.readCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_READ) //TODO: refactor to not depend on TYPE_READ

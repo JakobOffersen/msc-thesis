@@ -7,13 +7,8 @@ const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("./file
 const lock = require("fd-lock")
 const { CAPABILITY_TYPE_WRITE } = require("../constants.js")
 const { createDeleteFileContent } = require("../file-delete-utils.js")
+const FSError = require("./fs-error.js")
 
-class FSError extends Error {
-    constructor(code) {
-        super()
-        this.code = code
-    }
-}
 function ignored(path) {
     return basename(path).startsWith(".")
 }
@@ -32,7 +27,7 @@ function messageSize(ciphertextBytes) {
 }
 
 class FuseHandlers {
-    constructor(baseDir, keyring, { debug = false } = {}) {
+    constructor(baseDir, keyring, debug = false) {
         this.baseDir = baseDir
         this.keyring = keyring
         this.debug = debug
@@ -154,22 +149,24 @@ class FuseHandlers {
     // }
 
     async open(path, flags) {
-        if (ignored(path)) throw new FSError(Fuse.ENOENT)
         if (this.debug) console.log(`open ${path}`)
+        if (ignored(path)) throw new FSError(Fuse.ENOENT)
+
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
         const capabilities = await this.keyring.getCapabilitiesWithPath(path)
 
-        const filehandle = new FileHandle({ fd, capabilities })
+        const filehandle = new FileHandle(fd, capabilities)
         this.handles.set(fd, filehandle)
+
         return fd
     }
 
     // Called when a file descriptor is being released.Happens when a read/ write is done etc.
     async release(path, fd) {
+        if (this.debug) console.log(`release ${path}`)
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
 
-        if (this.debug) console.log(`release ${path}`)
         this.handles.delete(fd)
     }
 
@@ -197,7 +194,7 @@ class FuseHandlers {
         if (this.debug) console.log(`write ${path} len ${length} pos ${position}`)
         const handle = this.handles.get(fd)
 
-        if (!handle.writeCapability) throw new FSError(Fuse.ENOENT) // the user is not allowed to perform the operation. 
+        if (!handle.writeCapability) throw new FSError(Fuse.ENOENT) // the user is not allowed to perform the operation.
 
         // We lock the file to ensure no other process (e.g. the daemon) interacts with the
         // file in the time-frame between writing the content and writing the signature
@@ -215,9 +212,10 @@ class FuseHandlers {
 
     // Create and open file
     async create(path, mode) {
+        if (this.debug) console.log(`create ${path}`)
+
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
-        if (this.debug) console.log(`create ${path}`)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
@@ -230,7 +228,7 @@ class FuseHandlers {
             capabilities = await this.keyring.createNewCapabilitiesForRelativePath(path)
         }
 
-        const filehandle = new FileHandle({ fd, capabilities })
+        const filehandle = new FileHandle(fd, capabilities)
         await filehandle.createSignature()
         if (this.debug) console.log(`\tprepended signature`)
         this.handles.set(fd, filehandle)

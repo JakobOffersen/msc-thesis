@@ -1,22 +1,20 @@
 const chokidar = require("chokidar")
-const path = require("path")
 const EventEmitter = require("events")
 const fs = require("fs/promises")
 const { createReadStream } = require("fs")
 const queue = require("async/queue")
-const { basename, dirname, extname } = require("path")
+const { basename, dirname, extname, relative } = require("path")
 const { Dropbox } = require("dropbox")
 const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
-const { FILE_DELETE_PREFIX_BUFFER } = require("../constants")
 const { verifyCombined, verifyDetached, decryptWithPublicKey, Hasher } = require("../crypto")
 const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
-const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN } = require("../constants")
+const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, FILE_DELETE_PREFIX_BUFFER } = require("../constants")
 const debounce = require("debounce")
 const { inversePromise } = require("../test/testUtil")
 
-/// IntegrityChecker reacts to changes on 'watchPatch' (intended to be the dropbox-client)
+/// IntegrityChecker reacts to changes on 'watchPath' (intended to be the dropbox-client)
 /// and verifies each change against 'predicate'.
 /// If a changed file doesn't satisfy 'predicate', the changed file is restored
 /// to its latest revision which satisfies 'predicate'.
@@ -183,7 +181,7 @@ class IntegrityChecker extends EventEmitter {
      * @param {string} localPath
      */
     async _pushJob(localPath, opts) {
-        const remotePath = "/" + path.relative(this._watchPath, localPath)
+        const remotePath = "/" + relative(this._watchPath, localPath)
         const job = { localPath, remotePath, ...opts }
         this._jobQueue.push(job)
     }

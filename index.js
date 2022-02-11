@@ -20,7 +20,7 @@ const { makeUser } = require("./make-user")
         await makeUser(keyring) // this creates the users key pair and postal box
     }
 
-    const handlers = new FuseHandlers(BASE_DIR, keyring, { debug: false })
+    const handlers = new FuseHandlers(BASE_DIR, keyring, false)
     const cbHandlers = callbackifyHandlersObj(handlers)
 
     const opts = {

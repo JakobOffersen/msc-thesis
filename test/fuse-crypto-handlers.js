@@ -9,13 +9,14 @@ const {
     CAPABILITY_TYPE_VERIFY
 } = require("../constants")
 const Keyring = require("../key-management/keyring")
-const { join, resolve } = require("path")
+const { join } = require("path")
 const fs = require("fs/promises")
 const fsFns = require("../fsFns.js")
 const sodium = require("sodium-native")
 const crypto = require("../crypto")
+const { tmpdir } = require("os")
 
-const tempDir = resolve("./tmp/")
+const tempDir = tmpdir()
 
 const keyringPath = join(tempDir, "test.keyring")
 const keyring = new Keyring(keyringPath)

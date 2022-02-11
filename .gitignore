@@ -2,6 +2,8 @@ mnt
 fsp
 cache
 test-files
+*.keyring
+*.keys
 
 # Created by https://www.toptal.com/developers/gitignore/api/node,macos,git,dropbox
 # Edit at https://www.toptal.com/developers/gitignore?templates=node,macos,git,dropbox
@@ -183,9 +185,3 @@ dist
 # End of https://www.toptal.com/developers/gitignore/api/node,macos,git,dropbox
 
 package-lock.json
-
-# test-folder for storing temporary files
-/test/tmp/*
-
-*.keyring
-*.keys

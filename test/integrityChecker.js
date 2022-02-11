@@ -9,6 +9,7 @@ const {
 	teardownLocalAndRemoteTestFolder,
 } = require("./testUtil")
 const IntegrityChecker = require("../daemons/integrity-checker")
+const { tmpdir } = require("os")
 
 const dropboxApp = {
 	key: "b2gdry5rbkoq1jm",
@@ -17,14 +18,15 @@ const dropboxApp = {
 		"rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W",
 }
 
-const testdirname = "integrityChecker"
+const testDirName = "integrityChecker"
+const tempDir = tmpdir()
 
-const fsp = new DropboxProvider(dropboxApp.accessToken, __dirname)
+const fsp = new DropboxProvider(dropboxApp.accessToken, tempDir)
 const dropboxClientPath = "/Users/jakoboffersen/Dropbox"
 
 describe.skip("integrity-checker", function () {
 	before("setup local and remote test-folder", async function () {
-		await setupLocalAndRemoteTestFolder(__dirname, testdirname, fsp)
+		await setupLocalAndRemoteTestFolder(tempDir, testDirName, fsp)
 	})
 
 	afterEach(
@@ -32,16 +34,16 @@ describe.skip("integrity-checker", function () {
 		async function () {
 			this.timeout(5 * 1000) // allow for 5 seconds per filename needed to be deleted from FSP
 			await clearLocalAndRemoteTestFolderIfNecessary(
-				__dirname,
-				testdirname,
+				tempDir,
+				testDirName,
 				fsp
 			)
 		}
 	)
 
-	after("tear-down local test folder", async function () {
+	after("tear down local test folder", async function () {
 		this.timeout(10 * 1000)
-		await teardownLocalAndRemoteTestFolder(__dirname, testdirname, fsp)
+		await teardownLocalAndRemoteTestFolder(tempDir, testDirName, fsp)
 	})
 
 	it("should rollback a file not meeting a condition until to the most-recent version meeting that condition", async function () {
@@ -53,8 +55,8 @@ describe.skip("integrity-checker", function () {
 		// This mocks an update coming from another party through the fsp.
 		const filename = "filename.txt"
 		const filecontent = Buffer.from("initial and valid content")
-		const relativeFilePath = path.join(testdirname, filename)
-		const localFullPath = path.join(__dirname, relativeFilePath)
+		const relativeFilePath = path.join(testDirName, filename)
+		const localFullPath = path.join(tempDir, relativeFilePath)
 		await fs.writeFile(localFullPath, filecontent)
 		await fsp.upload(relativeFilePath)
 

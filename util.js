@@ -1,6 +1,5 @@
 const { isAsyncFunction } = require("util/types")
 
-
 function callbackify(fn) {
     const SUCCESS = 0
     const fnLength = fn.length

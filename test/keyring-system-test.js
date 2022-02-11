@@ -7,16 +7,17 @@ const crypto = require("../crypto")
 const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilities } = require("../key-management/capability-utils")
 const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 const { v4: uuidv4 } = require("uuid")
-const Keyring = require("./keyring")
+const { tmpdir } = require("os")
 
 const dropboxAccessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
 const testDirName = "keyring-system-test"
+const tempDir = tmpdir()
 
-const fsp = new DropboxProvider(dropboxAccessToken, __dirname)
+const fsp = new DropboxProvider(dropboxAccessToken, tempDir)
 
 describe("Keyring system test", function () {
     before("setup local and remote test-folder", async function () {
-        await setupLocalAndRemoteTestFolder(__dirname, testDirName, fsp)
+        await setupLocalAndRemoteTestFolder(tempDir, testDirName, fsp)
     })
 
     beforeEach("Clear local and remote test-folder if necessary", async function () {
@@ -28,15 +29,15 @@ describe("Keyring system test", function () {
         await fsp.createDirectory(join(testDirName, "users"))
 
         // clear local folder by removing it and creating it again
-        const localTestPath = join(__dirname, testDirName)
+        const localTestPath = join(tempDir, testDirName)
         await fs.rm(localTestPath, { recursive: true, force: true })
         await fs.mkdir(localTestPath)
         await fs.mkdir(join(localTestPath, "users"))
     })
 
-    after("tear-down local test folder", async function () {
+    after("tear down local test folder", async function () {
         this.timeout(10 * 1000)
-        await teardownLocalAndRemoteTestFolder(__dirname, testDirName, fsp)
+        await teardownLocalAndRemoteTestFolder(tempDir, testDirName, fsp)
     })
 
     it("one user shares capabilities with another user", async function () {
@@ -58,14 +59,14 @@ describe("Keyring system test", function () {
         // setup recipient and their postal box
         const recipient = crypto.makeEncryptionKeyPair()
         const recipientPostalBox = join(testDirName, "users", recipient.pk.toString("hex"))
-        await fs.mkdir(join(__dirname, recipientPostalBox))
+        await fs.mkdir(join(tempDir, recipientPostalBox))
 
         const filename = "file-to-be-shared.txt"
 
         // Generate capabilities
         const capabilities = generateCapabilitiesForPath(join(testDirName, filename))
         const encryptedCapabilities = crypto.encryptWithPublicKey(JSON.stringify(capabilities), recipient.pk)
-        await fs.writeFile(join(__dirname, recipientPostalBox, "capability.txt"), encryptedCapabilities)
+        await fs.writeFile(join(tempDir, recipientPostalBox, "capability.txt"), encryptedCapabilities)
 
         // upload the capability to recipients postalbox
         await fsp.upload(join(recipientPostalBox, "capability.txt"))
@@ -85,12 +86,12 @@ describe("Keyring system test", function () {
         // setup recipient postal box
         const postalBoxPath = join(testDirName, "users")
         const recipientPostalBox = join(postalBoxPath, recipient.pk.toString("hex"))
-        await fs.mkdir(join(__dirname, recipientPostalBox))
+        await fs.mkdir(join(tempDir, recipientPostalBox))
 
         // setup file-paths
         const filename = "filename.txt"
         const relativeFilePath = join(testDirName, filename)
-        const fullFilePath = join(__dirname, relativeFilePath)
+        const fullFilePath = join(tempDir, relativeFilePath)
 
         // sender generates capabilities for the file and encrypts them in a file (with random filename)
         const capabilites = generateCapabilitiesForPath(join(testDirName, filename))
@@ -99,7 +100,7 @@ describe("Keyring system test", function () {
         const encryptedCapabilities = encryptCapabilities(capabilites, recipient.pk)
         const randomNameOfCapabilitiesFile = uuidv4()
         const relativePathEncryptedCapabilities = join(postalBoxPath, recipient.pk.toString("hex"), randomNameOfCapabilitiesFile + ".capability")
-        await fs.writeFile(join(__dirname, relativePathEncryptedCapabilities), encryptedCapabilities)
+        await fs.writeFile(join(tempDir, relativePathEncryptedCapabilities), encryptedCapabilities)
 
         // sender uploads encrypted capabilities to recipient
         await fsp.upload(relativePathEncryptedCapabilities)

@@ -37,6 +37,8 @@ class Keyring {
             await fs.mkdir(parent, { recursive: true })
             await fs.writeFile(this.userPairPath, stringified)
         }
+
+        return { sk, pk }
     }
 
     async getUserKeyPair() {

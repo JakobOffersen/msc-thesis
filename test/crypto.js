@@ -252,7 +252,7 @@ describe("Crypto.js", function () {
                 const fakeSig = "sig"
 
                 assert.isTrue(crypto.verifyDetached(sig, m, pk))
-                assert.isFalse(crypto.verifyDetached(fakeSig, m, pk))
+                assert.throws(() => crypto.verifyDetached(fakeSig, m, pk))
             })
 
             it("pk must be Buffer of size 64", function () {
@@ -263,11 +263,9 @@ describe("Crypto.js", function () {
 
                 const sig = crypto.signDetached(m, sk)
 
-                assert.doesNotThrow(() => {
-                    crypto.verifyDetached(sig, m, pk)
-                })
-                assert.isFalse(crypto.verifyDetached(sig, m, pkTooShort))
-                assert.isFalse(crypto.verifyDetached(sig, m, pkTooLong))
+                assert.doesNotThrow(() => crypto.verifyDetached(sig, m, pk))
+                assert.throws(() => crypto.verifyDetached(sig, m, pkTooShort))
+                assert.throws(() => crypto.verifyDetached(sig, m, pkTooLong))
             })
 
             it("returns true iff signature is issued with corresponding secret key for passed public key", function () {
