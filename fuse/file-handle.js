@@ -50,7 +50,7 @@ class FileHandle {
 
         // Compute how many chunks are in the encrypted file.
         const chunkCount = Math.ceil(ciphertextLength / STREAM_CIPHER_CHUNK_SIZE)
-        
+
         return ciphertextLength - chunkCount * metadataSize
     }
 
@@ -65,7 +65,6 @@ class FileHandle {
     }
 
     async #readChunks(from, to) {
-        //TODO: When reading from start to finish, we load two chunks every time, but J thinks we only need to load one. Check if this is the case
         const fileSize = await this.#getFileLength()
 
         const start = this.#chunkPosition(from) + SIGNATURE_SIZE
@@ -127,21 +126,38 @@ class FileHandle {
         const fileSize = await this.#getPlaintextLength()
         if (position > fileSize) throw Error(`Out of bounds write`)
 
+        let head = Buffer.alloc(0)
+        let tail = Buffer.alloc(0)
+
+        // Prepare head
         // Figure out in which chunk the write starts
         const startChunkIndex = this.#ciphertextChunkIndex(position)
-
-        // Read any existing content from chunk and any succeeding chunks.
-        // All of this is a no-op if the write is an append.
-        // TODO: Can we avoid reading all succeeding chunks and instead only read those covered by the write?
         const startChunkPosition = this.#chunkPosition(startChunkIndex)
         const startChunkPlainPosition = this.#plaintextLength(startChunkPosition)
 
-        const readLength = fileSize - startChunkPlainPosition
-        const existing = Buffer.alloc(readLength)
-        await this.read(existing, existing.byteLength, startChunkPlainPosition)
+        if (startChunkPlainPosition < position) {
+            // The write is offset in the start chunk
+            head = Buffer.alloc(position - startChunkPlainPosition)
+            await this.read(head, head.byteLength, startChunkPlainPosition)
+        }
 
-        const head = existing.subarray(0, position - startChunkPlainPosition)
-        const tail = head.byteLength + buffer.byteLength > fileSize ? Buffer.alloc(0) : existing.subarray(head.byteLength + buffer.byteLength)
+        // Prepare tail
+        const endPosition = position + length
+
+        // If the write ends outside the current bounds of the file, there is no tail.
+        if (endPosition < fileSize) {
+            const nextChunkIndex = this.#ciphertextChunkIndex(endPosition) + 1
+            const nextChunkPosition = this.#chunkPosition(nextChunkIndex)
+            const nextChunkPlainPosition = this.#plaintextLength(nextChunkPosition)
+
+            // The tail starts where the write ends and ends at boundary of the chunk, in which the write ends.
+            const tailStart = endPosition
+            const tailEnd = Math.min(fileSize, nextChunkPlainPosition)
+            const tailLength = Math.min(fileSize, nextChunkPlainPosition) - endPosition
+            
+            tail = Buffer.alloc(tailEnd - tailStart)
+            await this.read(tail, tail.byteLength, endPosition)
+        }
 
         // Create a combined buffer of what needs to be encrypted and written.
         const combined = Buffer.concat([head, buffer, tail])
@@ -151,7 +167,7 @@ class FileHandle {
         let written = 0 // Plaintext bytes written
         let writePosition = startChunkPosition + SIGNATURE_SIZE // Ciphertext position
 
-        const isAppending = (position == fileSize)
+        const isAppending = position == fileSize
 
         while (written < combined.byteLength) {
             const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
