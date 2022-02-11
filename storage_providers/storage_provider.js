@@ -62,7 +62,7 @@ class DropboxProvider extends StorageProvider {
 
     constructor(accessToken, baseDirLocal) {
         super()
-        this.client = new Dropbox({ accessToken: accessToken })
+        this.dbx = new Dropbox({ accessToken: accessToken })
         this.baseDirLocal = baseDirLocal
         this.baseDirRemote = "/"
         this.on(this.LONGPOLL_RESPONSE_RECEIVED, this._longpollResponseListener.bind(this))
@@ -82,7 +82,7 @@ class DropboxProvider extends StorageProvider {
         if (result.changes) {
             // fetch change
             try {
-                const response = await this.client.filesListFolderContinue({ cursor })
+                const response = await this.dbx.filesListFolderContinue({ cursor })
                 const entries = response.result.entries
                 this.emit(this.LONGPOLL_NEW_ENTRIES, { path, entries })
             } catch (errer) {
@@ -113,7 +113,7 @@ class DropboxProvider extends StorageProvider {
 
             if (stat.size < this.MAX_UPLOAD_TRANSFER_SIZE) {
                 const contents = await file.readFile()
-                await this.client.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
+                await this.dbx.filesUpload({ path: fullPathRemote, mode: "overwrite", contents })
             } else {
                 const CHUNK_SIZE = 8 * 1024 ** 2 // 8 MB
                 let window = Buffer.alloc(CHUNK_SIZE)
@@ -123,7 +123,7 @@ class DropboxProvider extends StorageProvider {
                 await file.read(window, 0, CHUNK_SIZE)
                 offset += CHUNK_SIZE
 
-                const session = await this.client.filesUploadSessionStart({
+                const session = await this.dbx.filesUploadSessionStart({
                     contents: window
                 })
 
@@ -133,7 +133,7 @@ class DropboxProvider extends StorageProvider {
 
                     if (remaining > CHUNK_SIZE) {
                         await file.read(window, 0, CHUNK_SIZE)
-                        await this.client.filesUploadSessionAppendV2({
+                        await this.dbx.filesUploadSessionAppendV2({
                             contents: window,
                             cursor: { session_id: session.result.session_id, offset }
                         })
@@ -142,7 +142,7 @@ class DropboxProvider extends StorageProvider {
                     } else {
                         await file.read(window, 0, remaining)
 
-                        await this.client.filesUploadSessionFinish({
+                        await this.dbx.filesUploadSessionFinish({
                             contents: window.subarray(0, remaining),
                             cursor: { session_id: session.result.session_id, offset },
                             commit: { path: relativeFilePath, mode: "overwrite" }
@@ -162,14 +162,14 @@ class DropboxProvider extends StorageProvider {
     }
 
     async downloadRevision(revisionID) {
-        const response = await this.client.filesDownload({ path: "rev:" + revisionID })
+        const response = await this.dbx.filesDownload({ path: "rev:" + revisionID })
         return response.result.fileBinary
     }
 
     async downloadFile(relativeFilePath, { shouldWriteToDisk = true }) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
 
-        const response = await this.client.filesDownload({ path: fullPathRemote })
+        const response = await this.dbx.filesDownload({ path: fullPathRemote })
         const result = response.result
 
         if (shouldWriteToDisk) {
@@ -191,22 +191,22 @@ class DropboxProvider extends StorageProvider {
 
     async delete(relativePath) {
         const fullPathRemote = path.join(this.baseDirRemote, relativePath)
-        return await this.client.filesDeleteV2({ path: fullPathRemote })
+        return await this.dbx.filesDeleteV2({ path: fullPathRemote })
     }
 
     async createDirectory(relativeDirectoryPath) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeDirectoryPath)
-        return await this.client.filesCreateFolderV2({ path: fullPathRemote })
+        return await this.dbx.filesCreateFolderV2({ path: fullPathRemote })
     }
 
     async deleteDirectory(relativeDirectoryPath) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeDirectoryPath)
-        return await this.client.filesDeleteV2({ path: fullPathRemote })
+        return await this.dbx.filesDeleteV2({ path: fullPathRemote })
     }
 
     async _getLatestFolderCursor(relativeDirectoryPath) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeDirectoryPath)
-        const latestCursorResponse = await this.client.filesListFolderGetLatestCursor({ path: fullPathRemote })
+        const latestCursorResponse = await this.dbx.filesListFolderGetLatestCursor({ path: fullPathRemote })
         return latestCursorResponse.result.cursor
     }
 
@@ -214,7 +214,7 @@ class DropboxProvider extends StorageProvider {
         this._shouldStopLongpoll = false
         try {
             const cursor = await this._getLatestFolderCursor(relativeDirectoryPath)
-            this._longpollHandler = this.client
+            this._longpollHandler = this.dbx
                 .filesListFolderLongpoll({ cursor: cursor, timeout: this.MIN_LONG_POLL_TIMEOUT })
                 .then(response => {
                     if (this._shouldStopLongpoll) return
@@ -252,18 +252,18 @@ class DropboxProvider extends StorageProvider {
 
         const latestNonDeletedEntry = entries[0]
 
-        await this.client.filesRestore({ path: fullPathRemote, rev: latestNonDeletedEntry.rev })
+        await this.dbx.filesRestore({ path: fullPathRemote, rev: latestNonDeletedEntry.rev })
     }
 
     async listRevisions(relativeFilePath) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
-        const response = await this.client.filesListRevisions({ path: fullPathRemote, mode: "path", limit: 100 })
+        const response = await this.dbx.filesListRevisions({ path: fullPathRemote, mode: "path", limit: 100 })
         return response.result
     }
 
     async restoreFile(relativeFilePath, revisionID) {
         const fullPathRemote = path.join(this.baseDirRemote, relativeFilePath)
-        return await this.client.filesRestore({ path: fullPathRemote, rev: revisionID })
+        return await this.dbx.filesRestore({ path: fullPathRemote, rev: revisionID })
     }
 }
 

@@ -1,12 +1,12 @@
+const { createReadStream } = require("fs")
+const { extname } = require("path")
+const { Dropbox } = require("dropbox")
 const crypto = require("./crypto")
 const fsFns = require("./fsFns")
-const { FILE_DELETE_PREFIX_BUFFER, FSP_ACCESS_TOKEN } = require("./constants")
-const { Dropbox } = require("dropbox")
 const dch = require("./dropbox-content-hasher")
-const { createReadStream } = require("fs")
-const { dirname, basename, join, extname } = require("path")
+const { FILE_DELETE_PREFIX_BUFFER, FSP_ACCESS_TOKEN } = require("./constants")
 
-const db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
+const dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
 
 async function createDeleteFileContent({ writeKey, localPath, remotePath }) {
     console.log(`unlink ${localPath}`)
@@ -21,7 +21,7 @@ async function createDeleteFileContent({ writeKey, localPath, remotePath }) {
 async function fetchRevisionForPath({ remotePath, localPath }) {
     const contentHash = await dropboxContentHash(localPath)
 
-    const response = await db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+    const response = await dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
 
     let revisionIndex = response.result.entries.findIndex(entry => entry.content_hash === contentHash)
     if (revisionIndex === -1) console.log("NO INDEX MATCHED CONTENT HASH OF", localPath)

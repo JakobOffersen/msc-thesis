@@ -5,7 +5,7 @@ const { FuseHandlers } = require("./fuse/fuse-crypto-handlers")
 const Keyring = require("./key-management/keyring")
 const { LOCAL_KEYRING_PATH, BASE_DIR, MOUNT_DIR, LOCAL_USERPAIR_PATH } = require("./constants")
 const { dirname, join, basename } = require("path")
-const { makeUser } = require("./make-user")
+const makeUser = require("./utilities/make-user")
 
 ;(async () => {
     const args = process.argv.slice(2)

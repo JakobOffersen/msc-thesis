@@ -14,7 +14,7 @@ const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, FILE_DELETE_
 const debounce = require("debounce")
 const { inversePromise } = require("../test/testUtil")
 
-/// IntegrityChecker reacts to changes on 'watchPath' (intended to be the dropbox-client)
+/// IntegrityChecker reacts to changes on 'watchPath' (intended to be the FSP directory)
 /// and verifies each change against 'predicate'.
 /// If a changed file doesn't satisfy 'predicate', the changed file is restored
 /// to its latest revision which satisfies 'predicate'.
@@ -31,7 +31,7 @@ class IntegrityChecker extends EventEmitter {
 
     constructor({ watchPath, keyring, username }) {
         super()
-        this._db = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
+        this._dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
         this._watchPath = watchPath
         this._keyring = keyring
         this._username = username
@@ -157,7 +157,7 @@ class IntegrityChecker extends EventEmitter {
 
         if (!contentHash) contentHash = await dropboxContentHash(localPath)
 
-        const response = await this._db.filesListRevisions({ path: remotePath, mode: "path" })
+        const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path" })
         const entries = response.result.entries
         // Find the index of the current revision. The revision used for the message must be just before the current one
         // We need this step to handle a race condition in which we fetch for revisions of the file before Dropbox
@@ -194,7 +194,7 @@ class IntegrityChecker extends EventEmitter {
     async _rollback({ localPath, remotePath, eventType }) {
         if (extname(localPath) === ".deleted" && eventType === "unlink") {
             // a '.deleted' file has been deleted
-            const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+            const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
             console.log(`_rollback .deleted && unlink: ${response.status}, remote path ${remotePath}`)
             const entries = response.result.entries
             entries.forEach(e => console.log(e.rev))
@@ -207,7 +207,7 @@ class IntegrityChecker extends EventEmitter {
                 await this.fileRestore({ remotePath, rev: revisionToRestoreTo.rev })
             } catch (error) {
                 if (error.errno !== -2) throw error
-                const response = await this._db.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+                const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
                 await this.fileRestore({ remotePath, rev: response.result.entries[1].rev })
             }
         }
@@ -218,7 +218,7 @@ class IntegrityChecker extends EventEmitter {
 
         console.log(`retoring ${remotePath}, retries: ${retries + 1}, rev: ${rev}`)
         try {
-            const response = await this._db.filesRestore({ path: remotePath, rev: rev }) // a delete is *not* considered a revision in Dropbox. Therefore we should restore the latest version (index 1)
+            const response = await this._dbx.filesRestore({ path: remotePath, rev: rev }) // a delete is *not* considered a revision in Dropbox. Therefore we should restore the latest version (index 1)
             console.log(`restored ${remotePath} ${response.result.rev}`)
         } catch {
             const { resolve, promise } = inversePromise()
@@ -277,7 +277,7 @@ class IntegrityChecker extends EventEmitter {
 
 // A hash of the entire file content computed in the same way that Dropbox
 // computes their 'content_hash'.
-const dropboxContentHash = async localPath => {
+async function dropboxContentHash(localPath) {
     return new Promise((resolve, reject) => {
         //TODO: lock while hashing?
         const hasher = dch.create()
@@ -289,7 +289,7 @@ const dropboxContentHash = async localPath => {
 }
 
 // A hash of the content computed in the same way that we compute the hash in FUSE
-const ciphertextHash = async localPath => {
+async function ciphertextHash(localPath) {
     //TODO: Lock while reading macs?
     const hasher = new Hasher()
     const fd = await fsFns.open(localPath, "r")
