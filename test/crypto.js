@@ -141,12 +141,8 @@ describe("Crypto.js", function () {
                 assert.doesNotThrow(() => {
                     crypto.decrypt(c, k)
                 })
-                assert.throws(() => {
-                    crypto.decrypt(c, tooShortKey)
-                })
-                assert.throws(() => {
-                    crypto.decrypt(c, tooLongKey)
-                })
+                assert.isNull(crypto.decrypt(c, tooShortKey))
+                assert.isNull(crypto.decrypt(c, tooLongKey))
             })
 
             it("returns type Buffer", function () {

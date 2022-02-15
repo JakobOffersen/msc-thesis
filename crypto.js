@@ -1,96 +1,94 @@
 const sodium = require("sodium-native")
 
-function _makeNonce() {
-    let nonce = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES)
+function _makeNonce(size) {
+    const nonce = Buffer.alloc(size)
     sodium.randombytes_buf(nonce)
     return nonce
 }
 
 function makeSymmetricKey() {
-    let nonce = Buffer.alloc(sodium.crypto_secretbox_KEYBYTES)
-    sodium.randombytes_buf(nonce)
-    return nonce
+    const key = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_KEYBYTES)
+    sodium.crypto_aead_xchacha20poly1305_ietf_keygen(key)
+    return key
 }
 
 function encryptWithPublicKey(plain, pk) {
-    let m = Buffer.from(plain, "utf-8")
-    let ciphertext = Buffer.alloc(m.length + sodium.crypto_box_SEALBYTES)
+    const m = Buffer.from(plain, "utf-8")
+    const ciphertext = Buffer.alloc(m.length + sodium.crypto_box_SEALBYTES)
     sodium.crypto_box_seal(ciphertext, m, pk)
     return ciphertext
 }
 
 function decryptWithPublicKey(ciphertext, recipientPublicKey, recipientSecretKey) {
-    let m = Buffer.alloc(ciphertext.length - sodium.crypto_box_SEALBYTES)
+    const m = Buffer.alloc(ciphertext.length - sodium.crypto_box_SEALBYTES)
     sodium.crypto_box_seal_open(m, ciphertext, recipientPublicKey, recipientSecretKey)
     return m
 }
 
 function encrypt(plainMessage, key) {
-    let ciphertext = Buffer.alloc(plainMessage.length + sodium.crypto_secretbox_MACBYTES)
-    let message = Buffer.from(plainMessage, "utf-8")
-    let nonce = _makeNonce()
+    const ciphertext = Buffer.alloc(plainMessage.length + sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES)
+    const message = Buffer.from(plainMessage, "utf-8")
+    const nonce = _makeNonce(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
 
-    sodium.crypto_secretbox_easy(ciphertext, message, nonce, key)
+    sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(ciphertext, message, null, null, nonce, key)
 
     return Buffer.concat([nonce, ciphertext]) // Prepend nonce to ciphertext
 }
 
 function decrypt(nonceAndCipher, key) {
-    let { nonce, cipher } = _splitNonceAndCipher(nonceAndCipher)
-    let plainTextBuffer = Buffer.alloc(cipher.length - sodium.crypto_secretbox_MACBYTES)
-    if (sodium.crypto_secretbox_open_easy(plainTextBuffer, cipher, nonce, key)) {
-        return plainTextBuffer
-    } else {
-        return null // Decryption failed.
+    const { nonce, ciphertext } = _splitNonceAndCipher(nonceAndCipher)
+    const out = Buffer.alloc(ciphertext.length - sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES)
+    
+    try {
+        sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(out, null, ciphertext, null, nonce, key)
+        return out
+    } catch (error) {
+        return null
     }
 }
 
-function _splitNonceAndCipher(cipherAndNonce) {
-    // nonce is always prepended to cipher when encrypted.
-    // Thus we copy the first part into 'nonce' and second part into 'ciphertext'
-    let nonce = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES)
-    let cipher = Buffer.alloc(cipherAndNonce.length - nonce.length)
-    cipherAndNonce.copy(nonce, 0, 0, sodium.crypto_secretbox_NONCEBYTES)
-    cipherAndNonce.copy(cipher, 0, sodium.crypto_secretbox_NONCEBYTES, cipherAndNonce.length)
+function _splitNonceAndCipher(combined) {
+    const nonce = combined.subarray(0, sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
+    const ciphertext = combined.subarray(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
 
-    return { nonce, cipher }
+    return { nonce, ciphertext }
 }
 
 function hash(input) {
-    let output = Buffer.alloc(sodium.crypto_generichash_BYTES_MIN)
+    const output = Buffer.alloc(sodium.crypto_generichash_BYTES_MIN)
     sodium.crypto_generichash(output, input)
     return output
 }
 
 function makeSigningKeyPair() {
-    let sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
-    let pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
+    const sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
+    const pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
     sodium.crypto_sign_keypair(pk, sk)
     return { sk, pk }
 }
 
 function makeEncryptionKeyPair() {
-    let sk = Buffer.alloc(sodium.crypto_box_SECRETKEYBYTES)
-    let pk = Buffer.alloc(sodium.crypto_box_PUBLICKEYBYTES)
+    const sk = Buffer.alloc(sodium.crypto_box_SECRETKEYBYTES)
+    const pk = Buffer.alloc(sodium.crypto_box_PUBLICKEYBYTES)
     sodium.crypto_box_keypair(pk, sk)
     return { sk, pk }
 }
 
 function signDetached(message, sk) {
-    let sig = Buffer.alloc(sodium.crypto_sign_BYTES)
-    sodium.crypto_sign_detached(sig, message, sk)
-    return sig
+    const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+    sodium.crypto_sign_detached(signature, message, sk)
+    return signature
 }
 
 function signCombined(message, sk) {
-    let signedMessage = Buffer.alloc(sodium.crypto_sign_BYTES + message.length)
+    const signedMessage = Buffer.alloc(sodium.crypto_sign_BYTES + message.length)
     sodium.crypto_sign(signedMessage, message, sk)
     return signedMessage
 }
 
 function verifyCombined(signedMessage, pk) {
     try {
-        let message = Buffer.alloc(signedMessage.length - sodium.crypto_sign_BYTES)
+        const message = Buffer.alloc(signedMessage.length - sodium.crypto_sign_BYTES)
         const verified = sodium.crypto_sign_open(message, signedMessage, pk)
         return { verified, message: verified ? message : null }
     } catch {

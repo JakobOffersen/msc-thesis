@@ -1,13 +1,14 @@
 const sodium = require("sodium-native")
 const { join, resolve } = require("path")
-// The maximum size of a message appended to the stream
-// Every chunk, except for the last, in the stream is of this size.
-const STREAM_CHUNK_SIZE = 4096
-const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
 
 const MAC_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES
 const NONCE_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES
 const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
+
+// The maximum size of a message appended to the stream
+// Every chunk, except for the last, in the stream is of this size.
+const STREAM_CHUNK_SIZE = 4096
+const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + MAC_LENGTH + NONCE_LENGTH
 
 const CAPABILITY_TYPE_READ = "read"
 const CAPABILITY_TYPE_WRITE = "write"
