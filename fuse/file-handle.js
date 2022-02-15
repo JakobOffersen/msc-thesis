@@ -169,7 +169,6 @@ class FileHandle {
         let writePosition = startChunkPosition + SIGNATURE_SIZE // Ciphertext position
 
         const isAppending = position == fileSize
-        // console.log(`isAppending: ${isAppending}, pos: ${position}, fs: ${fileSize}`)
 
         while (written < combined.byteLength) {
             const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
