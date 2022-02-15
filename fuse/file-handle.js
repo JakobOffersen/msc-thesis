@@ -10,6 +10,9 @@ const {
     CAPABILITY_TYPE_VERIFY
 } = require("../constants")
 
+const MAC_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES
+const NONCE_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES
+
 class FileHandle {
     /**
      * TODO: Fix params documentation
@@ -24,7 +27,7 @@ class FileHandle {
         this.verifyCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_VERIFY)
 
         this.hasher = new Hasher()
-        this.needsRehash = false
+        this.needsRehash = true
     }
 
     /**
@@ -153,8 +156,7 @@ class FileHandle {
             // The tail starts where the write ends and ends at boundary of the chunk, in which the write ends.
             const tailStart = endPosition
             const tailEnd = Math.min(fileSize, nextChunkPlainPosition)
-            const tailLength = Math.min(fileSize, nextChunkPlainPosition) - endPosition
-            
+
             tail = Buffer.alloc(tailEnd - tailStart)
             await this.read(tail, tail.byteLength, endPosition)
         }
@@ -168,6 +170,7 @@ class FileHandle {
         let writePosition = startChunkPosition + SIGNATURE_SIZE // Ciphertext position
 
         const isAppending = position == fileSize
+        // console.log(`isAppending: ${isAppending}, pos: ${position}, fs: ${fileSize}`)
 
         while (written < combined.byteLength) {
             const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
@@ -181,10 +184,13 @@ class FileHandle {
             // Encrypt chunk
             const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
             sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
+            // sodium.crypto_aead_xchacha20poly1305_ietf_encrypt
+
 
             // Update hasher state
             if (isAppending) {
                 this.hasher.update(out)
+                this.needsRehash = false
             } else {
                 this.needsRehash = true
             }

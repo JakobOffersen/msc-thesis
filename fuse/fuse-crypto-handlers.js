@@ -5,25 +5,35 @@ const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
 const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("./file-handle")
 const lock = require("fd-lock")
-const { CAPABILITY_TYPE_WRITE } = require("../constants.js")
+const { CAPABILITY_TYPE_WRITE, STREAM_CHUNK_SIZE } = require("../constants.js")
 const { createDeleteFileContent } = require("../file-delete-utils.js")
 const FSError = require("./fs-error.js")
 
 function ignored(path) {
-    return basename(path).startsWith(".")
+    return basename(path).startsWith("._")
 }
 /**
- * Computes the size of a plaintext message based on the size of the ciphertext.
- * @param {number} fileSize
+ * Computes the size of a plaintext message based on the size of the file on disk.
+ * @param {number} fileLength
  * @returns size in bytes
  */
-function messageSize(ciphertextBytes) {
-    ciphertextBytes = ciphertextBytes - SIGNATURE_SIZE
+function plaintextLength(fileLength) {
+    fileLength -= SIGNATURE_SIZE
 
-    const blockCount = Math.ceil(ciphertextBytes / STREAM_CIPHER_CHUNK_SIZE)
-    const tagSizes = blockCount * (sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES)
+    const chunkCount = Math.ceil(fileLength / STREAM_CIPHER_CHUNK_SIZE)
+    const tagSizes = chunkCount * (sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES)
 
-    return Math.max(ciphertextBytes - tagSizes, 0) // some resource forks are not signed, since they are not created through the mount-point. All files should be of least size 0.
+    return Math.max(fileLength - tagSizes, 0) // some resource forks are not signed, since they are not created through the mount-point. All files should be of least size 0.
+}
+
+async function withFileLock(fd, fn) {
+    lock(fd)
+    try {
+        const res = await fn()
+        return res
+    } finally {
+        lock.unlock(fd)
+    }
 }
 
 class FuseHandlers {
@@ -75,7 +85,7 @@ class FuseHandlers {
         const stat = await fs.stat(fullPath)
         // Overwrite the size of the ciphertext with the size of the plaintext
         if (stat.isFile()) {
-            stat.size = messageSize(stat.size)
+            stat.size = plaintextLength(stat.size)
         }
 
         if (this.debug) console.log(`getattr ${path}, size ${stat.size}`)
@@ -101,20 +111,44 @@ class FuseHandlers {
     }
 
     async truncate(path, size) {
-        if (this.debug) console.log(`truncate ${path} size ${size}`)
+        if (this.debug) console.log(`truncate ${path} to size ${size}`)
+
+        const capabilities = await this.keyring.getCapabilitiesWithPath(path)
+        // TODO: Check read & write capability
+
         const fullPath = this.#resolvedPath(path)
-        fsFns.truncate(fullPath, size + SIGNATURE_SIZE)
-        //TODO: her skal vi skrive igen for at signaturen passer
-        //TODO: Her skal vi tjekke om brugeren har skrive-rettigheder
-    }
 
-    async ftruncate(path, fd, size) {
-        return fsFns.ftruncate(fd, size + SIGNATURE_SIZE)
-    }
+        const mode = 2 // fs.constants.O_RDWR
+        const fd = await this.open(path, mode)
+        const handle = this.handles.get(fd)
 
-    // async readlink(path) {
-    //     return fs.readlink(join(BASE_DIR, path))
-    // }
+        try {
+            if (size === 0) {
+                // FUSE is requesting we truncate the whole file. Only the signature is left behind.
+                await fsFns.ftruncate(fd, SIGNATURE_SIZE)
+                await handle.createSignature()
+            } else {
+                await withFileLock(fd, async () => {
+                    // Read the contents that should be kept
+                    const contents = Buffer.alloc(size)
+                    await handle.read(contents, size, 0)
+
+                    // Truncate the file
+                    await fsFns.truncate(fullPath, SIGNATURE_SIZE)
+
+                    // Write the saved contents
+                    await handle.write(contents, size, 0)
+
+                    // Create signature
+                    await handle.createSignature()
+                })
+            }
+        } finally {
+            // Close file descriptor
+            await this.release(path, fd)
+            await fsFns.close(fd)
+        }
+    }
 
     async chown(path, uid, gid) {
         const fullPath = this.#resolvedPath(path)
@@ -125,9 +159,6 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         return fs.chmod(fullPath, mode)
     }
-
-    // FUSE calls create instead
-    // async mknod(path, mode, deb) { throw FSError.operationNotSupported }
 
     // async setxattr(path, name, value, position, flags) {
     //     const fullPath = this.#resolvedPath(path)
@@ -156,8 +187,8 @@ class FuseHandlers {
         const fd = await fsFns.open(fullPath, flags)
         const capabilities = await this.keyring.getCapabilitiesWithPath(path)
 
-        const filehandle = new FileHandle(fd, capabilities)
-        this.handles.set(fd, filehandle)
+        const handle = new FileHandle(fd, capabilities)
+        this.handles.set(fd, handle)
 
         return fd
     }
@@ -194,20 +225,17 @@ class FuseHandlers {
         if (this.debug) console.log(`write ${path} len ${length} pos ${position}`)
         const handle = this.handles.get(fd)
 
-        if (!handle.writeCapability) throw new FSError(Fuse.ENOENT) // the user is not allowed to perform the operation.
+        if (!handle.writeCapability) throw new FSError(Fuse.EACCES) // the user is not allowed to perform the operation.
 
         // We lock the file to ensure no other process (e.g. the daemon) interacts with the
         // file in the time-frame between writing the content and writing the signature
-        lock(fd)
-        try {
+        return await withFileLock(fd, async () => {
             const bytesWritten = await handle.write(buffer, length, position)
             if (this.debug) console.log(`\tbytes written ${bytesWritten}`)
             await handle.createSignature()
             if (this.debug) console.log(`\created signature`)
             return bytesWritten
-        } finally {
-            lock.unlock(fd)
-        }
+        })
     }
 
     // Create and open file

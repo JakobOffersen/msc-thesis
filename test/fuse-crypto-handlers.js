@@ -351,4 +351,27 @@ describe("fuse handlers", function () {
 
         assert.isTrue(await checkSignature())
     })
+
+    describe("truncates files", function() {
+        const cases5 = [
+            [4096, 0],
+            [4096, 10],
+            [8192, 0],
+            [8192, 4096],
+            [8192, 7000],
+            [0, 0]
+        ]
+
+        cases5.forEach(([size, truncateToSize]) => {
+            it(`truncates a ${size} byte file to ${truncateToSize} bytes`, async function () {
+                const message = await writeTestMessage(size)
+                await handlers.truncate(testFile, truncateToSize)
+
+                const remainingMessage = await openAndRead(testFile, truncateToSize, 0)
+
+                assert.strictEqual(Buffer.compare(message.subarray(0, truncateToSize), remainingMessage), 0)
+                assert.isTrue(await checkSignature())
+            })
+        })
+    })
 })
