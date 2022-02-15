@@ -4,7 +4,7 @@ const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = 
 
 function generateCapabilitiesForPath(relativePath) {
     const read = crypto.makeSymmetricKey()
-    const pair = crypto.makeSigningKeyPair()
+    const signingPair = crypto.makeSigningKeyPair()
     const createdAt = DateTime.now()
     const updatedAt = DateTime.now()
 
@@ -17,14 +17,14 @@ function generateCapabilitiesForPath(relativePath) {
             updatedAt
         },
         {
-            key: pair.sk,
+            key: signingPair.sk,
             path: relativePath,
             type: CAPABILITY_TYPE_WRITE,
             createdAt,
             updatedAt
         },
         {
-            key: pair.pk,
+            key: signingPair.pk,
             path: relativePath,
             type: CAPABILITY_TYPE_VERIFY,
             createdAt,
