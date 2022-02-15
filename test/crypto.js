@@ -2,27 +2,6 @@ const assert = require("chai").assert
 const crypto = require("../crypto")
 
 describe("Crypto.js", function () {
-    describe("#hash(input)", function () {
-        it("input must be of type Buffer", function () {
-            const input = Buffer.from("hello world")
-            const output = crypto.hash(input)
-            assert.isTrue(Buffer.isBuffer(input))
-            assert.isNotNull(output)
-        })
-
-        it("throws error if input is not of type Buffer", function () {
-            const input = "plain message"
-            assert.throws(() => {
-                crypto.hash(input)
-            })
-        })
-
-        it("output is of type Buffer", function () {
-            const input = Buffer.from("input")
-            const output = crypto.hash(input)
-            assert.isTrue(Buffer.isBuffer(output))
-        })
-    })
 
     describe("Symmetric Cryptography", function () {
         describe("#makeSymmetricKey()", function () {

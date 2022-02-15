@@ -54,12 +54,6 @@ function _splitNonceAndCipher(combined) {
     return { nonce, ciphertext }
 }
 
-function hash(input) {
-    const output = Buffer.alloc(sodium.crypto_generichash_BYTES_MIN)
-    sodium.crypto_generichash(output, input)
-    return output
-}
-
 function makeSigningKeyPair() {
     const sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
     const pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
@@ -124,7 +118,6 @@ class Hasher {
 }
 
 module.exports = {
-    hash,
     makeSymmetricKey,
     encryptWithPublicKey,
     decryptWithPublicKey,
