@@ -4,14 +4,13 @@ const { signDetached, Hasher } = require("../crypto")
 const {
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,
+    MAC_LENGTH,
+    NONCE_LENGTH,
     SIGNATURE_SIZE,
     CAPABILITY_TYPE_READ,
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_VERIFY
 } = require("../constants")
-
-const MAC_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES
-const NONCE_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES
 
 class FileHandle {
     /**
@@ -49,7 +48,7 @@ class FileHandle {
 
     #plaintextLength(ciphertextLength) {
         // Each chunk has metadata in the form of an authentication tag (MAC) and a nonce.
-        const metadataSize = sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
+        const metadataSize = MAC_LENGTH + NONCE_LENGTH
 
         // Compute how many chunks are in the encrypted file.
         const chunkCount = Math.ceil(ciphertextLength / STREAM_CIPHER_CHUNK_SIZE)
@@ -103,13 +102,13 @@ class FileHandle {
 
             const inBuffer = ciphertext.subarray(chunkStart, chunkStart + chunkLength)
 
-            const nonce = inBuffer.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
-            const encrypted = inBuffer.subarray(sodium.crypto_secretbox_NONCEBYTES)
+            const nonce = inBuffer.subarray(0, NONCE_LENGTH)
+            const encrypted = inBuffer.subarray(NONCE_LENGTH)
 
             const outStart = chunk * STREAM_CHUNK_SIZE
             const outEnd = outStart + this.#plaintextLength(chunkLength)
             const outBuffer = plaintext.subarray(outStart, outEnd)
-            const res = sodium.crypto_secretbox_open_easy(outBuffer, encrypted, nonce, this.readCapability.key)
+            const res = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(outBuffer, null, encrypted, null, nonce, this.readCapability.key)
             if (!res) throw new Error("Decryption failed")
         }
 
@@ -175,17 +174,15 @@ class FileHandle {
         while (written < combined.byteLength) {
             const toBeWritten = Math.min(STREAM_CHUNK_SIZE, combined.byteLength - written)
             const plaintext = combined.subarray(written, written + toBeWritten)
-            const out = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES + toBeWritten + sodium.crypto_secretbox_MACBYTES)
+            const out = Buffer.alloc(NONCE_LENGTH + toBeWritten + MAC_LENGTH)
 
             // Generate nonce
-            const nonce = out.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
+            const nonce = out.subarray(0, NONCE_LENGTH)
             sodium.randombytes_buf(nonce)
 
             // Encrypt chunk
-            const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
-            sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, this.readCapability.key)
-            // sodium.crypto_aead_xchacha20poly1305_ietf_encrypt
-
+            const ciphertext = out.subarray(NONCE_LENGTH)
+            sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(ciphertext, plaintext, null, null, nonce, this.readCapability.key)
 
             // Update hasher state
             if (isAppending) {

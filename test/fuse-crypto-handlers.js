@@ -3,6 +3,8 @@ const { FuseHandlers } = require("../fuse/fuse-crypto-handlers")
 const {
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,
+    MAC_LENGTH,
+    NONCE_LENGTH,
     SIGNATURE_SIZE,
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_READ,
@@ -56,14 +58,14 @@ async function writeTestMessage(length) {
 
         const plaintext = message.subarray(written, written + toBeWritten)
 
-        const out = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES + toBeWritten + sodium.crypto_secretbox_MACBYTES)
+        const out = Buffer.alloc(NONCE_LENGTH + toBeWritten + MAC_LENGTH)
 
         // Create nonce and encrypt chunk
-        const nonce = out.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
+        const nonce = out.subarray(0, NONCE_LENGTH)
         sodium.randombytes_buf(nonce)
 
-        const ciphertext = out.subarray(sodium.crypto_secretbox_NONCEBYTES)
-        sodium.crypto_secretbox_easy(ciphertext, plaintext, nonce, readCapability.key)
+        const ciphertext = out.subarray(NONCE_LENGTH)
+        sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(ciphertext, plaintext, null, null, nonce, readCapability.key)
 
         // Update hash state
         hasher.update(out)

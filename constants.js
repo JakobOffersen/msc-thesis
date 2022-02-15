@@ -5,6 +5,8 @@ const { join, resolve } = require("path")
 const STREAM_CHUNK_SIZE = 4096
 const STREAM_CIPHER_CHUNK_SIZE = STREAM_CHUNK_SIZE + sodium.crypto_secretbox_MACBYTES + sodium.crypto_secretbox_NONCEBYTES
 
+const MAC_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES
+const NONCE_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES
 const SIGNATURE_SIZE = sodium.crypto_sign_BYTES
 
 const CAPABILITY_TYPE_READ = "read"
@@ -24,6 +26,8 @@ const FILE_DELETE_PREFIX_BUFFER = Buffer.from("2E96CNuTm63uwUlvjSWiXaOtU8xk48qh0
 module.exports = {
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,
+    MAC_LENGTH,
+    NONCE_LENGTH,
     SIGNATURE_SIZE,
     CAPABILITY_TYPE_READ,
     CAPABILITY_TYPE_WRITE,
