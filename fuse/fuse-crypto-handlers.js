@@ -113,26 +113,25 @@ class FuseHandlers {
     async truncate(path, size) {
         if (this.debug) console.log(`truncate ${path} to size ${size}`)
 
-        const capabilities = await this.keyring.getCapabilitiesWithPath(path)
-        // TODO: Check read & write capability
-
-        const fullPath = this.#resolvedPath(path)
-
         const mode = 2 // fs.constants.O_RDWR
         const fd = await this.open(path, mode)
         const handle = this.handles.get(fd)
 
+        if (!handle.writeCapability) throw new FSError(Fuse.EACCES) // the user is not allowed to perform the operation.
+
+
         try {
-            if (size === 0) {
-                // FUSE is requesting we truncate the whole file. Only the signature is left behind.
-                await fsFns.ftruncate(fd, SIGNATURE_SIZE)
-                await handle.createSignature()
-            } else {
-                await withFileLock(fd, async () => {
+            await withFileLock(fd, async () => {
+                if (size === 0) {
+                    // FUSE is requesting we truncate the whole file. Only the signature is left behind.
+                    await fsFns.ftruncate(fd, SIGNATURE_SIZE)
+                    await handle.createSignature()
+                } else {
                     // Read the contents that should be kept
                     const contents = Buffer.alloc(size)
                     await handle.read(contents, size, 0)
 
+                    const fullPath = this.#resolvedPath(path)
                     // Truncate the file
                     await fsFns.truncate(fullPath, SIGNATURE_SIZE)
 
@@ -141,8 +140,8 @@ class FuseHandlers {
 
                     // Create signature
                     await handle.createSignature()
-                })
-            }
+                }
+            })
         } finally {
             // Close file descriptor
             await this.release(path, fd)
