@@ -15,6 +15,7 @@ module.exports = {
     ftruncate: promisify(fsS.ftruncate).bind(fsS),
     fdatasync: promisify(fsS.fdatasync).bind(fsS),
     fsync: promisify(fsS.fsync).bind(fsS),
+    fdatasync: promisify(fsS.fdatasync).bind(fsS),
     close: promisify(fsS.close).bind(fsS),
     fstat: promisify(fsS.fstat).bind(fsS),
 }
