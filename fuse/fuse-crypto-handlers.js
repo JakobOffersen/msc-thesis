@@ -97,7 +97,11 @@ class FuseHandlers {
     }
 
     async fsync(path, fd, datasync) {
-        return fsFns.fsync(fd)
+        if (datasync) {
+            return fsFns.fdatasync(fd)
+        } else {
+            return fsFns.fsync(fd)
+        }
     }
 
     async fsyncdir(path, fd, datasync) {
@@ -192,7 +196,7 @@ class FuseHandlers {
         return fd
     }
 
-    // Called when a file descriptor is being released.Happens when a read/ write is done etc.
+    // Called when a file descriptor is being released.
     async release(path, fd) {
         if (this.debug) console.log(`release ${path}`)
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
