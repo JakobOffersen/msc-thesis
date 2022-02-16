@@ -247,10 +247,11 @@ class FuseHandlers {
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
         const parentName = basename(dirname(path)) // for 'x/y/z.txt' this returns 'y'
+        const grantparent = dirname(dirname(path)) // for 'a/b/c/d' this returns 'a/b'
         const cleanedBasename = basename(path).split(".").slice(0, 2).join(".") // remove potential suffixes starting with "." Eg "/picture.jpg.sb-ab52335b-nePMlX" becomes "picture.jpg"
         let capabilities
         if (parentName.startsWith(cleanedBasename)) {
-            capabilities = await this.keyring.getCapabilitiesWithPath("/" + cleanedBasename)
+            capabilities = await this.keyring.getCapabilitiesWithPath(join("/", grantparent, cleanedBasename))
         } else {
             capabilities = await this.keyring.createNewCapabilitiesForRelativePath(path)
         }
