@@ -75,12 +75,7 @@ class IntegrityChecker extends EventEmitter {
 
             this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 
-            try {
-                await this._rollback(job)
-            } catch (error) {
-                console.trace()
-                throw error
-            }
+            await this._rollback(job)
 
             this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
         })
@@ -124,8 +119,7 @@ class IntegrityChecker extends EventEmitter {
 
                 if (!verified) return false // the signature is not valid. No need to check further
 
-                const expectedRevision = await this.revisionBeforeCurrentRevision({ localPath, remotePath: remotePath.replace(".deleted", "") })
-                return Buffer.compare(message, Buffer.from(expectedRevision.rev, "hex")) === 0
+                return Buffer.compare(message, Buffer.from(remotePath, "hex")) === 0
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash from the macs in all chunks

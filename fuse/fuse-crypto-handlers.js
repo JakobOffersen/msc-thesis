@@ -273,7 +273,7 @@ class FuseHandlers {
         const writeCapability = await this.keyring.getCapabilityWithPathAndType(path, CAPABILITY_TYPE_WRITE)
         if (!writeCapability) return // only clients with write-capability are allowed to delete a file.
 
-        const content = await createDeleteFileContent({ localPath: fullPath, remotePath: path, writeKey: writeCapability.key })
+        const content = createDeleteFileContent({ localPath: fullPath, remotePath: path, writeKey: writeCapability.key })
         const fd = await fsFns.open(fullPath, "w")
         await fsFns.write(fd, content, 0, content.length, 0)
 
