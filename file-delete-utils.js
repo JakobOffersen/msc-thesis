@@ -1,33 +1,13 @@
 const { createReadStream } = require("fs")
 const { extname } = require("path")
-const { Dropbox } = require("dropbox")
 const crypto = require("./crypto")
 const fsFns = require("./fsFns")
 const dch = require("./dropbox-content-hasher")
-const { FILE_DELETE_PREFIX_BUFFER, FSP_ACCESS_TOKEN } = require("./constants")
+const { FILE_DELETE_PREFIX_BUFFER } = require("./constants")
 
-const dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
-
-async function createDeleteFileContent({ writeKey, localPath, remotePath }) {
-    console.log(`unlink ${localPath}`)
-    const revisionID = await fetchRevisionForPath({ remotePath, localPath })
-    const sig = crypto.signCombined(Buffer.from(revisionID, "hex"), writeKey) // note this returns the signature combined with the message
-    console.log(`\tchosen rev ID ${revisionID}`)
-    console.log(`\tsig ${sig.toString("hex")}`)
-
+function createDeleteFileContent({ writeKey, remotePath }) {
+    const sig = crypto.signCombined(Buffer.from(remotePath, "hex"), writeKey) // note this returns the signature combined with the message
     return Buffer.concat([FILE_DELETE_PREFIX_BUFFER, sig]) // prepend the file-delete marker
-}
-
-async function fetchRevisionForPath({ remotePath, localPath }) {
-    const contentHash = await dropboxContentHash(localPath)
-
-    const response = await dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
-
-    let revisionIndex = response.result.entries.findIndex(entry => entry.content_hash === contentHash)
-    if (revisionIndex === -1) console.log("NO INDEX MATCHED CONTENT HASH OF", localPath)
-    if (revisionIndex === -1) revisionIndex = 0 // default to the latest revision.
-
-    return response.result.entries[revisionIndex].rev
 }
 
 /**
