@@ -183,5 +183,3 @@ dist
 .webpack/
 
 # End of https://www.toptal.com/developers/gitignore/api/node,macos,git,dropbox
-
-package-lock.json
