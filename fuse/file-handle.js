@@ -232,9 +232,4 @@ class FileHandle {
     }
 }
 
-module.exports = {
-    FileHandle,
-    STREAM_CHUNK_SIZE,
-    STREAM_CIPHER_CHUNK_SIZE,
-    SIGNATURE_SIZE
-}
+module.exports = FileHandle

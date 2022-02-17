@@ -3,9 +3,9 @@ const { join, basename, dirname, extname } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
-const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("./file-handle")
+const FileHandle = require("./file-handle")
 const lock = require("fd-lock")
-const { CAPABILITY_TYPE_WRITE } = require("../constants.js")
+const { CAPABILITY_TYPE_WRITE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("../constants.js")
 const { createDeleteFileContent } = require("../file-delete-utils.js")
 const FSError = require("./fs-error.js")
 
@@ -46,8 +46,17 @@ class FuseHandlers {
         this.handles = new Map()
     }
 
+    /**
+     * Resolve a relative path to its location in the FSP directory.
+     * For example, /hello.txt becomes /Users/[Username]/Dropbox/hello.txt.
+     */
     #resolvedPath(path) {
         return join(this.baseDir, path)
+    }
+
+    async #ensureCapability(path, capabilityType) {
+        const capability = await this.keyring.getCapabilityWithPathAndType(path, capabilityType)
+        if (!capability) throw new FSError(Fuse.EACCES)
     }
 
     async init() {}
@@ -119,7 +128,6 @@ class FuseHandlers {
 
         if (!handle.writeCapability) throw new FSError(Fuse.EACCES) // the user is not allowed to perform the operation.
 
-
         try {
             await withFileLock(fd, async () => {
                 if (size === 0) {
@@ -158,25 +166,6 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         return fs.chmod(fullPath, mode)
     }
-
-    // async setxattr(path, name, value, position, flags) {
-    //     const fullPath = this.#resolvedPath(path)
-    //     await xattr.set(fullPath, name, value)
-    // }
-
-    // async getxattr(path, name, position) {
-    //     // return Buffer.alloc(0)
-    //     const fullPath = this.#resolvedPath(path)
-    //     return xattr.get(fullPath, name)
-    // }
-
-    // async listxattr(path) {
-    //     return xattr.list(path)
-    // }
-
-    // async removexattr(path, name) {
-    //     return xattr.remove(path, name)
-    // }
 
     async open(path, flags) {
         if (this.debug) console.log(`open ${path}`)
@@ -256,10 +245,11 @@ class FuseHandlers {
             capabilities = await this.keyring.createNewCapabilitiesForRelativePath(path)
         }
 
-        const filehandle = new FileHandle(fd, capabilities)
-        await filehandle.createSignature()
-        if (this.debug) console.log(`\tprepended signature`)
-        this.handles.set(fd, filehandle)
+        const handle = new FileHandle(fd, capabilities)
+        this.handles.set(fd, handle)
+
+        await handle.createSignature()
+
         return fd
     }
 
@@ -271,11 +261,11 @@ class FuseHandlers {
         const fullPath = this.#resolvedPath(path)
         if (ignored(path)) return await fs.unlink(fullPath)
 
-        const writeCapability = await this.keyring.getCapabilityWithPathAndType(path, CAPABILITY_TYPE_WRITE)
-        if (!writeCapability) throw new FSError(Fuse.EACCES) // Deleting a file requires write capabilities for that file
+        // Deleting a file requires write capabilities for that file
+        await this.#ensureCapability(path, CAPABILITY_TYPE_WRITE)
 
         const content = createDeleteFileContent({ localPath: fullPath, remotePath: path, writeKey: writeCapability.key })
-        
+
         // Truncate the file when opening a file descriptor.
         const fd = await this.open(path, fs.constants.O_RDWR | fs.constants.O_TRUNC)
 
@@ -311,7 +301,7 @@ class FuseHandlers {
             return fs.rm(this.#resolvedPath(path), { recursive: false })
         } catch (error) {
             console.log(error)
-            throw error            
+            throw error
         }
     }
 }
