@@ -112,7 +112,7 @@ class FileHandle {
             const outEnd = outStart + this.#plaintextLength(chunkLength)
             const outBuffer = plaintext.subarray(outStart, outEnd)
             const res = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(outBuffer, null, encrypted, null, nonce, this.readCapability.key)
-            if (!res) throw new Error("Decryption failed")
+            if (!res) throw new FSError(Fuse.EIO)
         }
 
         // Determine what we should return from the plaintext
@@ -130,7 +130,7 @@ class FileHandle {
         if (!this.readCapability || !this.writeCapability) throw new FSError(Fuse.EACCES)
 
         const fileSize = await this.#getPlaintextLength()
-        if (position > fileSize) throw Error(`Out of bounds write`)
+        if (position > fileSize) throw new FSError(Fuse.EINVAL)
 
         let head = Buffer.alloc(0)
         let tail = Buffer.alloc(0)
