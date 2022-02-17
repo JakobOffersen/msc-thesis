@@ -26,6 +26,10 @@ function plaintextLength(fileLength) {
     return Math.max(fileLength - tagSizes, 0) // some resource forks are not signed, since they are not created through the mount-point. All files should be of least size 0.
 }
 
+/**
+ * Locks the file referenced by the provided file descriptor and
+ * calls the provided function.
+ */
 async function withFileLock(fd, fn) {
     lock(fd)
     try {
@@ -67,11 +71,8 @@ class FuseHandlers {
     }
 
     async statfs(path) {
-        // TODO: The fs module in Node doesn't support the statfs operation.
-        // const res = await statvfs(path)
-        // console.log("Statfs: ", path)
-        // console.log(res)
-        // return res
+        // FIXME: Find a way to stat the underlying file system. As a workaround
+        // we currently return hardcoded values.
         return {
             bsize: 4096,
             frsize: 4096,
@@ -126,9 +127,9 @@ class FuseHandlers {
         const fd = await this.open(path, mode)
         const handle = this.handles.get(fd)
 
-        if (!handle.writeCapability) throw new FSError(Fuse.EACCES) // the user is not allowed to perform the operation.
-
         try {
+            if (!handle.writeCapability) throw new FSError(Fuse.EACCES) // the user is not allowed to perform the operation.
+
             await withFileLock(fd, async () => {
                 if (size === 0) {
                     // FUSE is requesting we truncate the whole file. Only the signature is left behind.
@@ -194,10 +195,6 @@ class FuseHandlers {
         return this.release(path, fd)
     }
 
-    // async opendir(path, flags) {
-    //     const dir = await fs.opendir(path, flags)
-    // }
-
     async read(path, fd, buffer, length, position) {
         if (ignored(path) || !this.handles.has(fd)) throw new FSError(Fuse.ENOENT)
         if (this.debug) console.log(`read ${path} len ${length} pos ${position}`)
@@ -226,15 +223,17 @@ class FuseHandlers {
         })
     }
 
-    // Create and open file
+    /**
+     * Create a file and return a file descriptor for it.
+     * If a file already exists at the provided path, an error is thrown.
+     * Capabilities are added to the users keyring.
+     */
     async create(path, mode) {
         if (this.debug) console.log(`create ${path}`)
-
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
-        // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
-        const fullPath = this.#resolvedPath(path)
-        const fd = await fsFns.open(fullPath, "wx+", mode)
 
+        // Determine if this an "ephemeral" file. If so, it should share capabilities
+        // with the real file that it represents.
         const parentName = basename(dirname(path)) // for 'x/y/z.txt' this returns 'y'
         const grandparent = dirname(dirname(path)) // for 'a/b/c/d' this returns 'a/b'
         const cleanedBasename = basename(path).split(".").slice(0, 2).join(".") // remove potential suffixes starting with "." Eg "/picture.jpg.sb-ab52335b-nePMlX" becomes "picture.jpg"
@@ -245,26 +244,38 @@ class FuseHandlers {
             capabilities = await this.keyring.createNewCapabilitiesForRelativePath(path)
         }
 
+        // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
+        const fullPath = this.#resolvedPath(path)
+        const fd = await fsFns.open(fullPath, "wx+", mode)
+        
+        // Ensure that the file has a signature.
+        await handle.createSignature()
+
         const handle = new FileHandle(fd, capabilities)
         this.handles.set(fd, handle)
-
-        await handle.createSignature()
 
         return fd
     }
 
+    /**
+     * Return timestamps for the file
+     */
     async utimens(path, atime, mtime) {
         return fs.utimes(this.#resolvedPath(path), new Date(atime), new Date(mtime))
     }
 
+    /**
+     * Delete a file.
+     * This means replacing file contents with a signed marker and renaming the file.
+     */
     async unlink(path) {
         const fullPath = this.#resolvedPath(path)
         if (ignored(path)) return await fs.unlink(fullPath)
 
-        // Deleting a file requires write capabilities for that file
+        // Deleting a file requires write capabilities for that file.
         await this.#ensureCapability(path, CAPABILITY_TYPE_WRITE)
 
-        const content = createDeleteFileContent({ localPath: fullPath, remotePath: path, writeKey: writeCapability.key })
+        const content = createDeleteFileContent(writeCapability.key, path)
 
         // Truncate the file when opening a file descriptor.
         const fd = await this.open(path, fs.constants.O_RDWR | fs.constants.O_TRUNC)
@@ -283,26 +294,12 @@ class FuseHandlers {
         throw Fuse.EIO
     }
 
-    // async link(src, dest) {
-    //     return fs.link(join(BASE_DIR, src), join(BASE_DIR, dest))
-    // }
-
-    // async symlink(src, dest) {
-    //     return fs.symlink(join(BASE_DIR, dest), join(BASE_DIR, src))
-    // }
-
     async mkdir(path, mode) {
         return fs.mkdir(this.#resolvedPath(path), { recursive: false, mode: mode })
     }
 
     async rmdir(path) {
-        try {
-            return fs.rmdir(this.#resolvedPath(path))
-            return fs.rm(this.#resolvedPath(path), { recursive: false })
-        } catch (error) {
-            console.log(error)
-            throw error
-        }
+        return fs.rmdir(this.#resolvedPath(path))
     }
 }
 

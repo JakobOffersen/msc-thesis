@@ -1,11 +1,9 @@
-const { createReadStream } = require("fs")
+const fs = require("fs/promises")
 const { extname } = require("path")
 const crypto = require("./crypto")
-const fsFns = require("./fsFns")
-const dch = require("./dropbox-content-hasher")
 const { FILE_DELETE_PREFIX_BUFFER } = require("./constants")
 
-function createDeleteFileContent({ writeKey, remotePath }) {
+function createDeleteFileContent(writeKey, remotePath) {
     const sig = crypto.signCombined(Buffer.from(remotePath, "hex"), writeKey) // note this returns the signature combined with the message
     return Buffer.concat([FILE_DELETE_PREFIX_BUFFER, sig]) // prepend the file-delete marker
 }
@@ -19,16 +17,16 @@ async function fileAtPathMarkedAsDeleted(localPath) {
     if (extname(localPath) !== ".deleted") localPath = localPath + ".deleted"
     const prefix = Buffer.alloc(FILE_DELETE_PREFIX_BUFFER.length)
 
-    let fd
+    let file
     try {
-        fd = await fsFns.open(localPath, "r")
-        await fsFns.read(fd, prefix, 0, FILE_DELETE_PREFIX_BUFFER.length, 0)
-
+        file = await fs.open(localPath, "r")
+        await file.read(prefix, 0, prefix.byteLength, 0)
         return Buffer.compare(prefix, FILE_DELETE_PREFIX_BUFFER) === 0
     } catch {
-        return false // if the file does not exist, it cannot be marked as deleted
+        // An error can occur if the file does not exist or is shorter than the marker.
+        return false
     } finally {
-        if (!!fd) await fsFns.close(fd)
+        await file.close()
     }
 }
 
@@ -50,20 +48,8 @@ function verifyDeleteFileContent(content, verifyKey, expectedRevisionID) {
     }
 }
 
-// TODO: Refactor this and the same function in integrity-checker into own module
-const dropboxContentHash = async localPath => {
-    return new Promise((resolve, reject) => {
-        //TODO: lock while hashing?
-        const hasher = dch.create()
-        const stream = createReadStream(localPath)
-        stream.on("data", data => hasher.update(data))
-        stream.on("end", () => resolve(hasher.digest("hex")))
-        stream.on("error", err => reject(err))
-    })
-}
-
 module.exports = {
-    fileAtPathMarkedAsDeleted,
     createDeleteFileContent,
+    fileAtPathMarkedAsDeleted,
     verifyDeleteFileContent
 }
