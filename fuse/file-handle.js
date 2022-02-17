@@ -11,6 +11,8 @@ const {
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_VERIFY
 } = require("../constants")
+const Fuse = require("fuse-native")
+const FSError = require("./fs-error.js")
 
 class FileHandle {
     /**
@@ -81,7 +83,8 @@ class FileHandle {
     }
 
     async read(buffer, length, position) {
-        if (length === 0 || !this.readCapability) return 0
+        if (length === 0) return 0
+        if (!this.readCapability) throw new FSError(Fuse.EACCES)
 
         // Determine which chunks in the ciphertext stream the read request covers.
         const startChunkIndex = this.#ciphertextChunkIndex(position)
@@ -123,7 +126,8 @@ class FileHandle {
     }
 
     async write(buffer, length, position) {
-        if (length === 0 || !this.readCapability || !this.writeCapability) return 0
+        if (length === 0) return 0
+        if (!this.readCapability || !this.writeCapability) throw new FSError(Fuse.EACCES)
 
         const fileSize = await this.#getPlaintextLength()
         if (position > fileSize) throw Error(`Out of bounds write`)
