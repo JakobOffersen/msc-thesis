@@ -182,9 +182,9 @@ class FuseHandlers {
         if (this.debug) console.log(`open ${path}`)
         if (ignored(path)) throw new FSError(Fuse.ENOENT)
 
+        const capabilities = await this.keyring.getCapabilitiesWithPath(path)
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, flags)
-        const capabilities = await this.keyring.getCapabilitiesWithPath(path)
 
         const handle = new FileHandle(fd, capabilities)
         this.handles.set(fd, handle)
