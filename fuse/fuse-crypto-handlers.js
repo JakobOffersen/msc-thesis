@@ -280,7 +280,7 @@ class FuseHandlers {
     }
 
     async rename(src, dest) {
-        return fs.rename(this.#resolvedPath(src), this.#resolvedPath(dest))
+        throw Fuse.EIO
     }
 
     // async link(src, dest) {
