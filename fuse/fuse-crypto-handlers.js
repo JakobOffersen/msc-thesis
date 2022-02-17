@@ -272,13 +272,13 @@ class FuseHandlers {
         if (ignored(path)) return await fs.unlink(fullPath)
 
         const writeCapability = await this.keyring.getCapabilityWithPathAndType(path, CAPABILITY_TYPE_WRITE)
-        if (!writeCapability) return // only clients with write-capability are allowed to delete a file.
+        if (!writeCapability) throw new FSError(Fuse.EACCES) // Deleting a file requires write capabilities for that file
 
         const content = createDeleteFileContent({ localPath: fullPath, remotePath: path, writeKey: writeCapability.key })
         const fd = await fsFns.open(fullPath, "w")
         await fsFns.write(fd, content, 0, content.length, 0)
 
-        await fs.rename(fullPath, fullPath + ".deleted") // we mark  the file with -extension to easier distinguish deleted files from non-deleted files
+        await fs.rename(fullPath, fullPath + ".deleted") // Mark the file with an extension to more easily distinguish it from non-deleted files.
     }
 
     async rename(src, dest) {
