@@ -275,10 +275,18 @@ class FuseHandlers {
         if (!writeCapability) throw new FSError(Fuse.EACCES) // Deleting a file requires write capabilities for that file
 
         const content = createDeleteFileContent({ localPath: fullPath, remotePath: path, writeKey: writeCapability.key })
-        const fd = await fsFns.open(fullPath, "w")
-        await fsFns.write(fd, content, 0, content.length, 0)
+        
+        // Truncate the file when opening a file descriptor.
+        const fd = await this.open(path, fs.constants.O_RDWR | fs.constants.O_TRUNC)
 
-        await fs.rename(fullPath, fullPath + ".deleted") // Mark the file with an extension to more easily distinguish it from non-deleted files.
+        try {
+            await fsFns.write(fd, content, 0, content.length, 0)
+            await fs.rename(fullPath, fullPath + ".deleted") // Mark the file with an extension to more easily distinguish it from non-deleted files.
+        } finally {
+            // Close file descriptor
+            await this.release(path, fd)
+            await fsFns.close(fd)
+        }
     }
 
     async rename(src, dest) {
@@ -298,7 +306,13 @@ class FuseHandlers {
     }
 
     async rmdir(path) {
-        return fs.rmdir(this.#resolvedPath(path))
+        try {
+            return fs.rmdir(this.#resolvedPath(path))
+            return fs.rm(this.#resolvedPath(path), { recursive: false })
+        } catch (error) {
+            console.log(error)
+            throw error            
+        }
     }
 }
 
