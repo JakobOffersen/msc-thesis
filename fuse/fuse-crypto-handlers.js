@@ -92,10 +92,6 @@ class FuseHandlers {
         return stat
     }
 
-    async flush(path, fd) {
-        return fsFns.fdatasync(fd)
-    }
-
     async fsync(path, fd, datasync) {
         if (datasync) {
             return fsFns.fdatasync(fd)
