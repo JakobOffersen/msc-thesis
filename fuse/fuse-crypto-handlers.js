@@ -5,7 +5,7 @@ const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
 const { FileHandle, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("./file-handle")
 const lock = require("fd-lock")
-const { CAPABILITY_TYPE_WRITE, STREAM_CHUNK_SIZE } = require("../constants.js")
+const { CAPABILITY_TYPE_WRITE } = require("../constants.js")
 const { createDeleteFileContent } = require("../file-delete-utils.js")
 const FSError = require("./fs-error.js")
 
@@ -251,11 +251,11 @@ class FuseHandlers {
         const fd = await fsFns.open(fullPath, "wx+", mode)
 
         const parentName = basename(dirname(path)) // for 'x/y/z.txt' this returns 'y'
-        const grantparent = dirname(dirname(path)) // for 'a/b/c/d' this returns 'a/b'
+        const grandparent = dirname(dirname(path)) // for 'a/b/c/d' this returns 'a/b'
         const cleanedBasename = basename(path).split(".").slice(0, 2).join(".") // remove potential suffixes starting with "." Eg "/picture.jpg.sb-ab52335b-nePMlX" becomes "picture.jpg"
         let capabilities
         if (parentName.startsWith(cleanedBasename)) {
-            capabilities = await this.keyring.getCapabilitiesWithPath(join("/", grantparent, cleanedBasename))
+            capabilities = await this.keyring.getCapabilitiesWithPath(join("/", grandparent, cleanedBasename))
         } else {
             capabilities = await this.keyring.createNewCapabilitiesForRelativePath(path)
         }
