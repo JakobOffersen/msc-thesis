@@ -247,11 +247,11 @@ class FuseHandlers {
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
         const fullPath = this.#resolvedPath(path)
         const fd = await fsFns.open(fullPath, "wx+", mode)
-        
+
         // Ensure that the file has a signature.
+        const handle = new FileHandle(fd, capabilities)
         await handle.createSignature()
 
-        const handle = new FileHandle(fd, capabilities)
         this.handles.set(fd, handle)
 
         return fd
