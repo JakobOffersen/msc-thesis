@@ -1,4 +1,5 @@
 const fs = require("fs/promises")
+const { constants: fsConstants } = require("fs")
 const { join, basename, dirname, extname } = require("path")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
@@ -10,7 +11,7 @@ const { createDeleteFileContent } = require("../file-delete-utils.js")
 const FSError = require("./fs-error.js")
 
 function ignored(path) {
-    return basename(path).startsWith("._")
+    return basename(path).startsWith("._") || path === "/.DS_Store"
 }
 /**
  * Computes the size of a plaintext message based on the size of the file on disk.
@@ -123,8 +124,7 @@ class FuseHandlers {
     async truncate(path, size) {
         if (this.debug) console.log(`truncate ${path} to size ${size}`)
 
-        const mode = 2 // fs.constants.O_RDWR
-        const fd = await this.open(path, mode)
+        const fd = await this.open(path, fsConstants.O_RDWR)
         const handle = this.handles.get(fd)
 
         try {
@@ -275,10 +275,11 @@ class FuseHandlers {
         // Deleting a file requires write capabilities for that file.
         await this.#ensureCapability(path, CAPABILITY_TYPE_WRITE)
 
-        const content = createDeleteFileContent(writeCapability.key, path)
+        const writeCapability = await this.keyring.getCapabilityWithPathAndType(path, CAPABILITY_TYPE_WRITE)
 
+        const content = createDeleteFileContent(writeCapability.key, path)
         // Truncate the file when opening a file descriptor.
-        const fd = await this.open(path, fs.constants.O_RDWR | fs.constants.O_TRUNC)
+        const fd = await this.open(path, fsConstants.O_RDWR | fsConstants.O_TRUNC)
 
         try {
             await fsFns.write(fd, content, 0, content.length, 0)
@@ -291,7 +292,8 @@ class FuseHandlers {
     }
 
     async rename(src, dest) {
-        throw Fuse.EIO
+        //throw Fuse.EIO // we cannot throw .EIO as macOS calls 'rename' when making ephmeral files. By throwing .EIO (all?) Apples applications will fail
+        return fs.rename(this.#resolvedPath(src), this.#resolvedPath(dest))
     }
 
     async mkdir(path, mode) {
