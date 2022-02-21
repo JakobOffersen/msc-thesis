@@ -161,32 +161,6 @@ class IntegrityChecker extends EventEmitter {
         }
     }
 
-    async revisionBeforeCurrentRevision({ localPath, remotePath, contentHash, retries = 0 } = {}) {
-        if (retries === 10) throw new Error(`Cannot compute current revision for ${remotePath}. Retries: ${retries}`)
-
-        // Find the index of the current revision. The revision used for the message must be just before the current one
-        // We need this step to handle a race condition in which we fetch for revisions of the file before Dropbox
-        // has received the latest revision that we has marked as deleted.
-
-        if (!contentHash) contentHash = await dropboxContentHash(localPath)
-
-        const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path" })
-        const entries = response.result.entries
-        // Find the index of the current revision. The revision used for the message must be just before the current one
-        // We need this step to handle a race condition in which we fetch for revisions of the file before Dropbox
-        // has received the latest revision that we has marked as deleted.
-        const currentRevisionIndex = entries.findIndex(entry => entry.content_hash === contentHash)
-
-        if (currentRevisionIndex !== -1) return entries[currentRevisionIndex + 1] // return the revision before the current one
-
-        // FSP has not received the deleted version of the file.
-        // backoff and try again
-        const { promise, resolve } = inversePromise()
-        setTimeout(resolve, 2000) // wait for two seconds
-        await promise
-        return this.revisionBeforeCurrentRevision({ localPath, remotePath, retries: retries + 1 })
-    }
-
     /** Checks if the modified file at 'localPath' satisfies the predicate given in the constructor
      *  If not, the file at 'localPath' is restored to the latest revision which satisfy 'predicate'.
      *
@@ -202,12 +176,10 @@ class IntegrityChecker extends EventEmitter {
     async _restore({ remotePath, contentHash, retries = 0 } = {}) {
         if (retries === 10) throw new Error(`failed _restore ${remotePath}. Tried ${retries} times`)
 
-        const { resolve, promise } = inversePromise()
-        setTimeout(resolve, 3000)
-        await promise
         const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
 
         let entries = response.result.entries
+        entries.forEach(e => console.log(e.content_hash))
 
         try {
             for (const entry of entries) {
