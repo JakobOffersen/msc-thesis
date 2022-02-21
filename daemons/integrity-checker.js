@@ -10,9 +10,10 @@ const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
 const { verifyCombined, verifyDetached, decryptWithPublicKey, Hasher } = require("../crypto")
 const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
-const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, FILE_DELETE_PREFIX_BUFFER } = require("../constants")
+const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, FILE_DELETE_PREFIX_BUFFER, DAEMON_CONTENT_HASH_STORE_PATH } = require("../constants")
 const debounce = require("debounce")
 const { inversePromise } = require("../test/testUtil")
+const ContentHashStore = require("./content-hash-store")
 
 /// IntegrityChecker reacts to changes on 'watchPath' (intended to be the FSP directory)
 /// and verifies each change against 'predicate'.
@@ -35,6 +36,7 @@ class IntegrityChecker extends EventEmitter {
         this._watchPath = watchPath
         this._keyring = keyring
         this._username = username
+        this._hashStore = new ContentHashStore(DAEMON_CONTENT_HASH_STORE_PATH) // (remote-path) => [valid content hashes]
 
         // setup watcher
         this._watcher = chokidar.watch(watchPath, {
@@ -63,21 +65,38 @@ class IntegrityChecker extends EventEmitter {
         // Jobs are 'push'ed onto the queue and handled by a single worker.
         // The worker (the callback below) restores the invalid file to its latest valid state
         this._jobQueue = queue(async job => {
-            // Performance optimization: If an equivalent job is already pending,
-            // then it will perform the rollback that this job requests.
-            // Thus this job is reduntant and we can mark it as completed prematurely.
-            // This is purely a performance optimization.
             if (this._equivalentJobIsPending(job)) return this.emit(IntegrityChecker.EQUIVALENT_CONFLICT_IS_PENDING, job)
 
+            const { localPath, remotePath, eventType } = job
             const verified = await this._verify(job)
 
-            if (verified) return this.emit(IntegrityChecker.NO_CONFLICT, job)
+            // check if the content hash has been seen before. If it has, we conclude that the file has
+            // been restored to an older revision, which is not allowed. In that case we re-store to the
+            // newest valid version of the file
+            if (verified) {
+                const path = eventType === "unlink" ? localPath + ".deleted" : localPath
+                const contentHash = await dropboxContentHash(path)
+                const seenBefore = await this._hashStore.has(remotePath, contentHash)
 
-            this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+                if (seenBefore) {
+                    this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 
-            await this._rollback(job)
+                    const newest = await this._hashStore.newest(remotePath)
+                    await this._restore({ remotePath, contentHash: newest })
 
-            this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+                    this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+                } else {
+                    await this._hashStore.add(remotePath, contentHash)
+                    return this.emit(IntegrityChecker.NO_CONFLICT, job)
+                }
+            } else {
+                this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+
+                const newest = await this._hashStore.newest(remotePath)
+                await this._restore({ remotePath, contentHash: newest })
+
+                this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+            }
         })
 
         // This is called if any worker fails (e.g throws an error)
@@ -104,12 +123,11 @@ class IntegrityChecker extends EventEmitter {
             if (hasDeleteMark) {
                 // step 1)
                 // A valid delete follows the schema:
-                //      <delete-prefix><signature(revisionID)>
-                // where 'revisionID' denotes the latest revision ID of the file before it was marked as deleted
+                //      <delete-prefix><signature(remote-path)>
                 // Thus we accept the file-delete iff
                 // 1) the prefix is present and correct AND
                 // 2) the signature is present and correct AND
-                // 3) the signed message is the revision ID of the file just before the file marked as deleted
+                // 3) the signed message is the remote path of the file
 
                 // read the signature from the file
                 if (extname(localPath) !== ".deleted") localPath = localPath + ".deleted"
@@ -119,10 +137,11 @@ class IntegrityChecker extends EventEmitter {
 
                 if (!verified) return false // the signature is not valid. No need to check further
 
-                return Buffer.compare(message, Buffer.from(remotePath, "hex")) === 0
+                const remotePathWithoutDeletedExtension = remotePath.replace(".deleted", "") // remove the .deleted extension
+                return Buffer.compare(message, Buffer.from(remotePathWithoutDeletedExtension)) === 0
             } else {
                 // is a regular write-operation: verify the signature
-                // compute the hash from the macs in all chunks
+                // compute the hash of the content
                 const hash = await ciphertextHash(localPath)
                 const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
                 const fd = await fsFns.open(localPath, "r")
@@ -163,7 +182,6 @@ class IntegrityChecker extends EventEmitter {
         // FSP has not received the deleted version of the file.
         // backoff and try again
         const { promise, resolve } = inversePromise()
-        console.log(`revisionBeforeCurrentRevision retry ${retries + 1}`)
         setTimeout(resolve, 2000) // wait for two seconds
         await promise
         return this.revisionBeforeCurrentRevision({ localPath, remotePath, retries: retries + 1 })
@@ -180,48 +198,37 @@ class IntegrityChecker extends EventEmitter {
         this._jobQueue.push(job)
     }
 
-    /**
-     *
-     * @param {} remotePath - the remote path of the file to restore. Is optional if 'localPath' is present
-     * @param {} localPath - the local path of the file to restore. Is optional if 'remotePath' is present
-     */
-    async _rollback({ localPath, remotePath, eventType }) {
-        if (extname(localPath) === ".deleted" && eventType === "unlink") {
-            // a '.deleted' file has been deleted
-            const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
-            console.log(`_rollback .deleted && unlink: ${response.status}, remote path ${remotePath}`)
-            const entries = response.result.entries
-            entries.forEach(e => console.log(e.rev))
-            await this.fileRestore({ remotePath, rev: entries[0].rev })
-        } else {
-            remotePath = remotePath.replace(".deleted", "") // TODO: explain why we remove the extension here
+    /// Restores to the revision having 'contentHash'
+    async _restore({ remotePath, contentHash, retries = 0 } = {}) {
+        if (retries === 10) throw new Error(`failed _restore ${remotePath}. Tried ${retries} times`)
 
-            try {
-                const revisionToRestoreTo = await this.revisionBeforeCurrentRevision({ localPath, remotePath })
-                await this.fileRestore({ remotePath, rev: revisionToRestoreTo.rev })
-            } catch (error) {
-                if (error.errno !== -2) throw error
-                const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
-                await this.fileRestore({ remotePath, rev: response.result.entries[1].rev })
-            }
-        }
-    }
+        const { resolve, promise } = inversePromise()
+        setTimeout(resolve, 3000)
+        await promise
+        const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
 
-    async fileRestore({ remotePath, rev, retries = 0 } = {}) {
-        if (retries === 10) throw new Error(`failed restoring ${remotePath}. Tried ${retries} times`)
+        let entries = response.result.entries
 
-        console.log(`retoring ${remotePath}, retries: ${retries + 1}, rev: ${rev}`)
         try {
-            const response = await this._dbx.filesRestore({ path: remotePath, rev: rev }) // a delete is *not* considered a revision in Dropbox. Therefore we should restore the latest version (index 1)
-            console.log(`restored ${remotePath} ${response.result.rev}`)
+            for (const entry of entries) {
+                if (entry.content_hash === contentHash) {
+                    await this._dbx.filesRestore({ path: remotePath, rev: entry.rev }) // this may throw
+                    return
+                }
+            }
+            throw new Error("_restore gone wrong")
         } catch {
             const { resolve, promise } = inversePromise()
-            setTimeout(resolve, 2000)
+            setTimeout(resolve, 1000)
             await promise
-            await this.fileRestore({ remotePath, rev, retries: retries + 1 })
+            await this._restore({ remotePath, contentHash, retries: retries + 1 })
         }
     }
 
+    // Performance optimization: If an equivalent job is already pending,
+    // then it will perform the rollback that this job requests.
+    // Thus this job is reduntant and we can mark it as completed prematurely.
+    // This is purely a performance optimization.
     _equivalentJobIsPending({ remotePath }) {
         const pendingJobs = [...this._jobQueue]
         return pendingJobs.some(job => job.remotePath === remotePath)
@@ -284,7 +291,7 @@ async function dropboxContentHash(localPath) {
 
 // A hash of the content computed in the same way that we compute the hash in FUSE
 async function ciphertextHash(localPath) {
-    //TODO: Lock while reading macs?
+    //TODO: Lock while reading?
     const hasher = new Hasher()
     const fd = await fsFns.open(localPath, "r")
 

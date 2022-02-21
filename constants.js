@@ -1,5 +1,6 @@
 const sodium = require("sodium-native")
 const { join, resolve } = require("path")
+const homedir = require("os").homedir()
 
 const MAC_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES
 const NONCE_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES
@@ -17,12 +18,14 @@ const CAPABILITY_TYPE_VERIFY = "verify"
 const LOCAL_KEYRING_PATH = join(__dirname, "keys", "local.keyring")
 const LOCAL_USERPAIR_PATH = join(__dirname, "keys", "user.keys")
 
-const BASE_DIR = resolve("./fsp")
+const BASE_DIR = join(homedir, "Dropbox")//resolve("./fsp")
 const MOUNT_DIR = resolve("./mnt")
 
 const FSP_ACCESS_TOKEN = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
 
 const FILE_DELETE_PREFIX_BUFFER = Buffer.from("2E96CNuTm63uwUlvjSWiXaOtU8xk48qh0Gjz83sf")
+
+const DAEMON_CONTENT_HASH_STORE_PATH = resolve("./daemons/hash-store.json")
 
 module.exports = {
     STREAM_CHUNK_SIZE,
@@ -39,4 +42,5 @@ module.exports = {
     MOUNT_DIR,
     FSP_ACCESS_TOKEN,
     FILE_DELETE_PREFIX_BUFFER,
+    DAEMON_CONTENT_HASH_STORE_PATH
 }

@@ -4,7 +4,7 @@ const crypto = require("./crypto")
 const { FILE_DELETE_PREFIX_BUFFER } = require("./constants")
 
 function createDeleteFileContent(writeKey, remotePath) {
-    const sig = crypto.signCombined(Buffer.from(remotePath, "hex"), writeKey) // note this returns the signature combined with the message
+    const sig = crypto.signCombined(Buffer.from(remotePath), writeKey) // note this returns the signature combined with the message
     return Buffer.concat([FILE_DELETE_PREFIX_BUFFER, sig]) // prepend the file-delete marker
 }
 
@@ -26,30 +26,11 @@ async function fileAtPathMarkedAsDeleted(localPath) {
         // An error can occur if the file does not exist or is shorter than the marker.
         return false
     } finally {
-        await file.close()
-    }
-}
-
-/**
- *
- * @param {Buffer} content the signature and message combined (created using crypto.signCombined)
- * @param {Buffer} verifyKey the key to verify the signature embedded in 'mark'
- * @param {Buffer | String} expectedRevisionID the revision ID of the file before the delete.
- * This ID must match the signed message for the mark to be valid
- * @returns {boolean} true if the delete-mark is valid, else false
- */
-function verifyDeleteFileContent(content, verifyKey, expectedRevisionID) {
-    const signedMessage = content.subarray(FILE_DELETE_PREFIX_BUFFER.length)
-    try {
-        const { verified, message } = crypto.verifyCombined(signedMessage, verifyKey)
-        return verified && Buffer.compare(message, Buffer.from(expectedRevisionID)) === 0 // .compare returns 0 iff the two buffers are equal
-    } catch {
-        return false
+        if (!!file) await file.close()
     }
 }
 
 module.exports = {
     createDeleteFileContent,
     fileAtPathMarkedAsDeleted,
-    verifyDeleteFileContent
 }
