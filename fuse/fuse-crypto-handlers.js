@@ -2,11 +2,12 @@ const fs = require("fs/promises")
 const { constants: fsConstants } = require("fs")
 const { join, basename, dirname, extname } = require("path")
 const sodium = require("sodium-native")
+const { statvfs } = require("@wwa/statvfs")
+const lock = require("fd-lock")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
 const FileHandle = require("./file-handle")
-const lock = require("fd-lock")
-const { CAPABILITY_TYPE_WRITE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE } = require("../constants.js")
+const { CAPABILITY_TYPE_WRITE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, BASE_DIR } = require("../constants.js")
 const { createDeleteFileContent } = require("../file-delete-utils.js")
 const FSError = require("./fs-error.js")
 
@@ -71,19 +72,18 @@ class FuseHandlers {
         return fs.access(fullPath, mode)
     }
 
+    /**
+     * Provides information about the file system.
+     * We obtain this information from the file system on which the FSP directory resides. 
+     */
     async statfs(path) {
-        // FIXME: Find a way to stat the underlying file system. As a workaround
-        // we currently return hardcoded values.
+        const res = await statvfs(BASE_DIR)
+
         return {
-            bsize: 4096,
-            frsize: 4096,
-            blocks: 2621440,
-            bfree: 2525080,
-            bavail: 2525080,
-            files: 292304,
-            ffree: 289126,
-            favail: 289126,
-            fsid: 140509193,
+            ...res,
+            frsize: res.bsize,
+            favail: res.bavail,
+            fsid: 42, // File system ID. See https://man7.org/linux/man-pages/man2/statfs.2.html
             flag: 4,
             namemax: 255
         }
