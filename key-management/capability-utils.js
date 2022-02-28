@@ -35,12 +35,12 @@ function generateCapabilitiesForPath(relativePath) {
 
 function encryptCapabilities(capabilities, recipientPublicKey) {
     const encoded = encode(capabilities)
-    const cipher = crypto.encryptWithPublicKey(encoded, recipientPublicKey)
+    const cipher = crypto.encryptAsymmetric(encoded, recipientPublicKey)
     return cipher
 }
 
 function decryptCapabilities(cipher, recipientPublicKey, recipientPrivateKey) {
-    const decrypted = crypto.decryptWithPublicKey(cipher, recipientPublicKey, recipientPrivateKey)
+    const decrypted = crypto.decryptAsymmetric(cipher, recipientPublicKey, recipientPrivateKey)
     const decoded = decode(decrypted)
     return decoded
 }

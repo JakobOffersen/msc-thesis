@@ -8,7 +8,7 @@ const { Dropbox } = require("dropbox")
 const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
-const { verifyCombined, verifyDetached, decryptWithPublicKey, Hasher } = require("../crypto")
+const { verifyCombined, verifyDetached, decryptAsymmetric, Hasher } = require("../crypto")
 const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
 const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, FILE_DELETE_PREFIX_BUFFER, DAEMON_CONTENT_HASH_STORE_PATH } = require("../constants")
 const debounce = require("debounce")
@@ -235,7 +235,7 @@ class IntegrityChecker extends EventEmitter {
         try {
             const { sk, pk } = await this._keyring.getUserKeyPair()
             const content = await fs.readFile(localPath)
-            const decrypted = decryptWithPublicKey(content, pk, sk)
+            const decrypted = decryptAsymmetric(content, pk, sk)
             const capabilities = JSON.parse(decrypted)
 
             for (const capability of capabilities) {

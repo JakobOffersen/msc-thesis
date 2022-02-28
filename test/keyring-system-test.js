@@ -5,15 +5,17 @@ const fs = require("fs/promises")
 const { setupLocalAndRemoteTestFolder, teardownLocalAndRemoteTestFolder } = require("./testUtil")
 const crypto = require("../crypto")
 const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilities } = require("../key-management/capability-utils")
-const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
+const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY, FSP_ACCESS_TOKEN } = require("../constants")
 const { v4: uuidv4 } = require("uuid")
 const { tmpdir } = require("os")
+const { Dropbox } = require("dropbox")
 
 const dropboxAccessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
-const testDirName = "keyring-system-test"
+const testDirName = "/keyring-system-test"
 const tempDir = tmpdir()
 
 const fsp = new DropboxProvider(dropboxAccessToken, tempDir)
+const dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
 
 describe("Keyring system test", function () {
     before("setup local and remote test-folder", async function () {
@@ -24,9 +26,9 @@ describe("Keyring system test", function () {
         // Clear the local and remote folder
         this.timeout(5 * 1000) // allow for 5 seconds per filename needed to be deleted from FSP
         // Clear remote folder by deleting it and creating it again
-        await fsp.deleteDirectory(testDirName)
-        await fsp.createDirectory(testDirName)
-        await fsp.createDirectory(join(testDirName, "users"))
+        await dbx.filesDeleteV2({ path: testDirName })
+        await dbx.filesCreateFolderV2({ path: testDirName })
+        await dbx.filesCreateFolderV2({ path: join(testDirName, "users") })
 
         // clear local folder by removing it and creating it again
         const localTestPath = join(tempDir, testDirName)
@@ -46,10 +48,10 @@ describe("Keyring system test", function () {
         const filename = "file-to-be-shared.txt"
         const capabilites = generateCapabilitiesForPath(join(testDirName, filename))
 
-        const encryptedCapabilities = crypto.encryptWithPublicKey(JSON.stringify(capabilites), user.pk)
+        const encryptedCapabilities = crypto.encryptAsymmetric(JSON.stringify(capabilites), user.pk)
 
         // we imagine 'encryptedCapabilities' is shared with user2
-        const decrypted = crypto.decryptWithPublicKey(encryptedCapabilities, user.pk, user.sk)
+        const decrypted = crypto.decryptAsymmetric(encryptedCapabilities, user.pk, user.sk)
 
         assert.equal(decrypted, JSON.stringify(capabilites))
     })
@@ -65,15 +67,14 @@ describe("Keyring system test", function () {
 
         // Generate capabilities
         const capabilities = generateCapabilitiesForPath(join(testDirName, filename))
-        const encryptedCapabilities = crypto.encryptWithPublicKey(JSON.stringify(capabilities), recipient.pk)
-        await fs.writeFile(join(tempDir, recipientPostalBox, "capability.txt"), encryptedCapabilities)
+        const encryptedCapabilities = crypto.encryptAsymmetric(JSON.stringify(capabilities), recipient.pk)
 
         // upload the capability to recipients postalbox
-        await fsp.upload(join(recipientPostalBox, "capability.txt"))
+        await dbx.filesUpload({ path: join(recipientPostalBox, "capability.txt"), mode: "overwrite", contents: encryptedCapabilities })
 
         // actions made by recipient. We assume that the recipient is notified of the newly added file to their postal box
         const cipher = await fsp.downloadFile(join(recipientPostalBox, "capability.txt"), { shouldWriteToDisk: false })
-        const decrypted = crypto.decryptWithPublicKey(cipher.fileBinary, recipient.pk, recipient.sk)
+        const decrypted = crypto.decryptAsymmetric(cipher.fileBinary, recipient.pk, recipient.sk)
 
         assert.equal(decrypted, JSON.stringify(capabilities))
     })

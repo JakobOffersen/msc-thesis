@@ -130,28 +130,6 @@ class Keyring {
         return null
     }
 
-    // /// Returns capabilites for 'path'.
-    // /// If optional 'types' is received, only the capabilites matching the types are returned
-    // /// otherwise all capabilities for 'path' is returned
-    // async makeCapabilityForPath(path, types) {
-    //     if (!!types) {
-    //         for (const type of types) {
-    //             if (!this._isValidCapabilityType(type)) {
-    //                 throw new Error("Recieved invalid type: " + type)
-    //             }
-    //         }
-    //     }
-    //     const capabilitys = await this.getCapabilitiesWithPath(path)
-
-    //     const capabilities = capabilitys.map(ko => {
-    //         delete ko.createdAt
-    //         delete ko.updatedAt
-    //         return ko
-    //     })
-
-    //     if (!!types) return capabilities.filter(cap => types.includes(cap.type))
-    //     else return capabilities
-    // }
 
     /// Returns 'true' if a capability has been updated, otherwise returns 'false'
     async updateCapabilitiesWithPath(oldPath, newPath) {

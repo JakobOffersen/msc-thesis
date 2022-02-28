@@ -1,25 +1,19 @@
 const sodium = require("sodium-native")
 
-function _makeNonce(size) {
-    const nonce = Buffer.alloc(size)
-    sodium.randombytes_buf(nonce)
-    return nonce
-}
-
 function makeSymmetricKey() {
     const key = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_KEYBYTES)
     sodium.crypto_aead_xchacha20poly1305_ietf_keygen(key)
     return key
 }
 
-function encryptWithPublicKey(plain, pk) {
+function encryptAsymmetric(plain, pk) {
     const m = Buffer.from(plain, "utf-8")
     const ciphertext = Buffer.alloc(m.length + sodium.crypto_box_SEALBYTES)
     sodium.crypto_box_seal(ciphertext, m, pk)
     return ciphertext
 }
 
-function decryptWithPublicKey(ciphertext, recipientPublicKey, recipientSecretKey) {
+function decryptAsymmetric(ciphertext, recipientPublicKey, recipientSecretKey) {
     const m = Buffer.alloc(ciphertext.length - sodium.crypto_box_SEALBYTES)
     sodium.crypto_box_seal_open(m, ciphertext, recipientPublicKey, recipientSecretKey)
     return m
@@ -38,20 +32,13 @@ function encrypt(plainMessage, key) {
 function decrypt(nonceAndCipher, key) {
     const { nonce, ciphertext } = _splitNonceAndCipher(nonceAndCipher)
     const out = Buffer.alloc(ciphertext.length - sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES)
-    
+
     try {
         sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(out, null, ciphertext, null, nonce, key)
         return out
     } catch (error) {
         return null
     }
-}
-
-function _splitNonceAndCipher(combined) {
-    const nonce = combined.subarray(0, sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
-    const ciphertext = combined.subarray(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
-
-    return { nonce, ciphertext }
 }
 
 function makeSigningKeyPair() {
@@ -95,6 +82,19 @@ function verifyDetached(signature, message, pk) {
     return sodium.crypto_sign_verify_detached(signature, message, pk)
 }
 
+function _splitNonceAndCipher(combined) {
+    const nonce = combined.subarray(0, sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
+    const ciphertext = combined.subarray(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES)
+
+    return { nonce, ciphertext }
+}
+
+function _makeNonce(size) {
+    const nonce = Buffer.alloc(size)
+    sodium.randombytes_buf(nonce)
+    return nonce
+}
+
 class Hasher {
     constructor() {
         this.state = Buffer.alloc(sodium.crypto_generichash_STATEBYTES)
@@ -119,8 +119,8 @@ class Hasher {
 
 module.exports = {
     makeSymmetricKey,
-    encryptWithPublicKey,
-    decryptWithPublicKey,
+    encryptAsymmetric,
+    decryptAsymmetric,
     encrypt,
     decrypt,
     makeSigningKeyPair,
