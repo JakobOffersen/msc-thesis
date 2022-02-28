@@ -68,12 +68,12 @@ describe("Keyring system test", function () {
         // Generate capabilities
         const capabilities = generateCapabilitiesForPath(join(testDirName, filename))
         const encryptedCapabilities = crypto.encryptAsymmetric(JSON.stringify(capabilities), recipient.pk)
-
+        const capabilityPath = join(recipientPostalBox, "capability.txt")
         // upload the capability to recipients postalbox
-        await dbx.filesUpload({ path: join(recipientPostalBox, "capability.txt"), mode: "overwrite", contents: encryptedCapabilities })
+        await dbx.filesUpload({ path: capabilityPath, mode: "overwrite", contents: encryptedCapabilities })
 
         // actions made by recipient. We assume that the recipient is notified of the newly added file to their postal box
-        const cipher = await fsp.downloadFile(join(recipientPostalBox, "capability.txt"), { shouldWriteToDisk: false })
+        const cipher = (await dbx.filesDownload({ path: capabilityPath })).result
         const decrypted = crypto.decryptAsymmetric(cipher.fileBinary, recipient.pk, recipient.sk)
 
         assert.equal(decrypted, JSON.stringify(capabilities))
@@ -101,10 +101,9 @@ describe("Keyring system test", function () {
         const encryptedCapabilities = encryptCapabilities(capabilites, recipient.pk)
         const randomNameOfCapabilitiesFile = uuidv4()
         const relativePathEncryptedCapabilities = join(postalBoxPath, recipient.pk.toString("hex"), randomNameOfCapabilitiesFile + ".capability")
-        await fs.writeFile(join(tempDir, relativePathEncryptedCapabilities), encryptedCapabilities)
 
         // sender uploads encrypted capabilities to recipient
-        await fsp.upload(relativePathEncryptedCapabilities)
+        await dbx.filesUpload({ path: relativePathEncryptedCapabilities, mode: "overwrite", contents: encryptedCapabilities })
 
         // sender writes to the file
         const plain = "hello, anyone there?"
@@ -112,15 +111,11 @@ describe("Keyring system test", function () {
 
         const signedCipher = crypto.signCombined(cipher, writeCap.key)
 
-        await fs.writeFile(fullFilePath, signedCipher)
-
         // sender uploads the file
-        await fsp.upload(relativeFilePath)
+        await dbx.filesUpload({ path: relativeFilePath, mode: "overwrite", contents: signedCipher })
 
         // recipient downloads capabilities. Here it is assumed that the recipient has listened for changes and has been notified of the change
-        const encryptedFile = await fsp.downloadFile(relativePathEncryptedCapabilities, {
-            shouldWriteToDisk: false
-        })
+        const encryptedFile = (await dbx.filesDownload({ path: relativePathEncryptedCapabilities })).result
 
         // recipient decrypts capabilities
         const recipientCapabilities = decryptCapabilities(encryptedFile.fileBinary, recipient.pk, recipient.sk)
@@ -128,7 +123,7 @@ describe("Keyring system test", function () {
         const recipientVerifyCap = recipientCapabilities.find(c => c.type === CAPABILITY_TYPE_VERIFY)
 
         // recipient downloads the file from the received capabilities
-        const signedCipherFile = await fsp.downloadFile(recipientReadCap.path, { shouldWriteToDisk: false })
+        const signedCipherFile = (await dbx.filesDownload({ path: recipientReadCap.path })).result
 
         // recipient verifies signature if downloaded file using verify-capability
         const { verified, message: cipherContent } = crypto.verifyCombined(signedCipherFile.fileBinary, recipientVerifyCap.key)
