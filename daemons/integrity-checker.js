@@ -31,7 +31,7 @@ class IntegrityChecker extends EventEmitter {
     static ADD_CAPABILITY = "add-capability"
     static ADD_CAPABILITY_FAILED = "add-capability-failed"
 
-    constructor({ watchPath, keyring, username }) {
+    constructor(watchPath, keyring, username) {
         super()
         this._dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
         this._watchPath = watchPath

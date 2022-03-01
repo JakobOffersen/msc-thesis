@@ -18,11 +18,13 @@ const keyring = new Keyring(keyringPath, userpairPath)
     }
 
     const { pk } = await keyring.getUserKeyPair()
-    const checker = new IntegrityChecker({
-        watchPath: BASE_DIR,
-        keyring: keyring,
-        username: pk.toString("hex")
-    })
+    const username = pk.toString("hex")
+    
+    const checker = new IntegrityChecker(
+        BASE_DIR,
+        keyring,
+        username
+    )
 
     checker.on(IntegrityChecker.READY, () => {
         console.log(timestamp("ready"))
