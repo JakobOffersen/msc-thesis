@@ -27,16 +27,6 @@ function callbackify(fn) {
 }
 
 function callbackifyHandlers(handlers) {
-    // Callbackify async handlers
-    for (let key of Object.keys(handlers)) {
-        const fn = handlers[key]
-        if (isAsyncFunction(fn)) {
-            handlers[key] = callbackify(fn)
-        }
-    }
-}
-
-function callbackifyHandlersObj(handlers) {
     const exlcuded = ["constructor"]
     const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(handlers))
     const obj = {}
@@ -80,6 +70,5 @@ SHUTDOWN_SIGNALS.forEach(signal => process.once(signal, exitHandler))
 module.exports = {
     callbackify,
     callbackifyHandlers,
-    callbackifyHandlersObj,
     beforeShutdown
 }

@@ -1,6 +1,6 @@
 const Fuse = require("fuse-native")
 const { promisify } = require("util")
-const { beforeShutdown, callbackifyHandlersObj } = require("./util")
+const { beforeShutdown, callbackifyHandlers } = require("./util")
 const { FuseHandlers } = require("./fuse/fuse-crypto-handlers")
 const Keyring = require("./key-management/keyring")
 const { LOCAL_KEYRING_PATH, BASE_DIR, MOUNT_DIR, LOCAL_USERPAIR_PATH } = require("./constants")
@@ -21,7 +21,7 @@ const makeUser = require("./utilities/make-user")
     }
 
     const handlers = new FuseHandlers(BASE_DIR, keyring, false)
-    const cbHandlers = callbackifyHandlersObj(handlers)
+    const cbHandlers = callbackifyHandlers(handlers)
 
     const opts = {
         force: true,
