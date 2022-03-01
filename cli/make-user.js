@@ -11,5 +11,6 @@ const keyring = new Keyring(keyringPath, userpairPath)
 
 ;(async () => {
     await makeUser(keyring)
+    const { pk } =await keyring.getUserKeyPair()
     console.log(`created postal box for user ${pk.toString("hex")}`)
 })()

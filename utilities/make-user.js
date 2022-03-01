@@ -1,14 +1,12 @@
 const { join } = require("path")
-const { Dropbox } = require("dropbox")
-const { FSP_ACCESS_TOKEN } = require("../constants")
-const dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
+const fs = require("fs/promises")
+const { BASE_DIR, POSTAL_BOX } = require("../constants")
 
 async function makeUser(keyring) {
     if (await keyring.hasUserKeyPair()) return
-
     const { pk } = await keyring.makeUserKeyPair()
-    const postalBox = join("/users", pk.toString("hex"))
-    await dbx.filesCreateFolderV2({ path: postalBox })
+    const postalBox = join(BASE_DIR, POSTAL_BOX, pk.toString("hex"))
+    await fs.mkdir(postalBox, { recursive: true })
 }
 
 module.exports = makeUser

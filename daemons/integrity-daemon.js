@@ -52,6 +52,14 @@ const keyring = new Keyring(keyringPath, userpairPath)
         console.log(timestamp(`${remotePath}: equivalent conflict is already pending on job queue`))
     })
 
+    checker.on(IntegrityChecker.ADD_CAPABILITY, ({ capability }) => {
+        console.log(timestamp(`add capability ${capability.type} for path ${capability.path}`))
+    })
+
+    checker.on(IntegrityChecker.ADD_CAPABILITY_FAILED, ({ remotePath, error }) => {
+        console.error(timestamp(`Add capability from path ${remotePath} failed with error ${error}`))
+    })
+
     beforeShutdown(() => {
         console.log(timestamp(`shutdown integrity-daemon`))
     })

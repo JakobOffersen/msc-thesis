@@ -10,7 +10,14 @@ const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
 const { verifyCombined, verifyDetached, decryptAsymmetric, Hasher } = require("../crypto")
 const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
-const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, FILE_DELETE_PREFIX_BUFFER, DAEMON_CONTENT_HASH_STORE_PATH } = require("../constants")
+const {
+    STREAM_CIPHER_CHUNK_SIZE,
+    SIGNATURE_SIZE,
+    FSP_ACCESS_TOKEN,
+    FILE_DELETE_PREFIX_BUFFER,
+    DAEMON_CONTENT_HASH_STORE_PATH,
+    POSTAL_BOX_SHARED
+} = require("../constants")
 const debounce = require("debounce")
 const { inversePromise } = require("../test/testUtil")
 const ContentHashStore = require("./content-hash-store")
@@ -29,6 +36,8 @@ class IntegrityChecker extends EventEmitter {
     static CONFLICT_RESOLUTION_FAILED = "conflict-resolution-failed"
     static CONFLICT_RESOLUTION_SUCCEEDED = "conflict-resolution-succeeded"
     static EQUIVALENT_CONFLICT_IS_PENDING = "equivalent-conflict-is-pending"
+    static ADD_CAPABILITY = "add-capability"
+    static ADD_CAPABILITY_FAILED = "add-capability-failed"
 
     constructor({ watchPath, keyring, username }) {
         super()
@@ -41,12 +50,11 @@ class IntegrityChecker extends EventEmitter {
         // setup watcher
         this._watcher = chokidar.watch(watchPath, {
             ignored: function (path) {
-                // ignore dot-files and ephemeral files creates by the system
                 return (
-                    path.match(/(^|[\/\\])\../) ||
+                    path.match(/(^|[\/\\])\../) || // ignore dot-files and ephemeral files creates by the system
                     basename(dirname(path)).split(".").length > 2 || // eg "file3.txt.sb-ab52335b-BlLaP1/file3.txt"
                     (basename(path).split(".").length > 2 && extname(path) !== ".deleted") || // eg "/milky-way-nasa.jpg.sb-ab52335b-jqZvPa/milky-way-nasa.jpg.sb-ab52335b-j7X3TY"
-                    (path.includes("/users/") && !path.includes("/users/" + this._username)) // ignore all postal boxes except for your own postal box. TODO: make into regex for better performance?
+                    (path.includes("/users/") && !(path.includes("/users/" + this._username) || path.includes(POSTAL_BOX_SHARED))) // ignore all postal boxes except for your own postal box and the shared postal box
                 )
             }.bind(this),
             persistent: true // indicates that chokidar should continue the process as long as files are watched
@@ -77,11 +85,11 @@ class IntegrityChecker extends EventEmitter {
                 const path = eventType === "unlink" ? localPath + ".deleted" : localPath
                 const contentHash = await dropboxContentHash(path)
                 const seenBefore = await this._hashStore.has(remotePath, contentHash)
+                const newest = await this._hashStore.newest(remotePath)
 
-                if (seenBefore) {
+                if (seenBefore && newest !== contentHash) {
                     this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 
-                    const newest = await this._hashStore.newest(remotePath)
                     await this._restore({ remotePath, contentHash: newest })
 
                     this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
@@ -166,8 +174,8 @@ class IntegrityChecker extends EventEmitter {
      *
      * @param {string} localPath
      */
-    async _pushJob(localPath, opts) {
-        const remotePath = "/" + relative(this._watchPath, localPath)
+    async _pushJob({ localPath, ...opts }) {
+        const remotePath = this._remotePath(localPath)
         const job = { localPath, remotePath, ...opts }
         this._jobQueue.push(job)
     }
@@ -179,7 +187,6 @@ class IntegrityChecker extends EventEmitter {
         const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
 
         let entries = response.result.entries
-        entries.forEach(e => console.log(e.content_hash))
 
         try {
             for (const entry of entries) {
@@ -208,30 +215,43 @@ class IntegrityChecker extends EventEmitter {
 
     _onAdd(localPath) {
         if (localPath.includes("/users/" + this._username)) {
-            this._checkPostalbox(localPath)
+            this._checkOwnPostalbox(localPath)
+        } else if (localPath.includes(POSTAL_BOX_SHARED)) {
+            this._checkSharedPostalBox(localPath)
         } else {
-            this._debouncePushJob(localPath, { eventType: "add" })
+            this._debouncePushJob({ localPath, eventType: "add" })
         }
     }
 
     _onChange(localPath) {
-        if (localPath.includes("/users/" + this._username)) return // ignore changes made in ones own postal box
-        this._debouncePushJob(localPath, { eventType: "change" })
+        if (localPath.includes("/users/" + this._username) || localPath.includes(POSTAL_BOX_SHARED)) return // ignore changes made in ones own or shared postal box
+        this._debouncePushJob({ localPath, eventType: "change" })
     }
 
     _onUnlink(localPath) {
-        if (localPath.includes("/users/" + this._username)) return // ignore deletes made in ones own postal box
-        this._debouncePushJob(localPath, { eventType: "unlink" })
+        if (localPath.includes("/users/" + this._username) || localPath.includes(POSTAL_BOX_SHARED)) return // ignore changes made in ones own or shared postal box
+        this._debouncePushJob({ localPath, eventType: "unlink" })
     }
 
-    _debouncePushJob(...args) {
-        const localPath = args[0]
-        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 1000))
+    _debouncePushJob({ localPath, eventType }) {
+        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 3000))
         const debounced = this.debouncers.get(localPath)
-        debounced(...args)
+        this.emit(IntegrityChecker.CHANGE, { remotePath: this._remotePath(localPath), localPath, eventType })
+        debounced({ localPath, eventType })
     }
 
-    async _checkPostalbox(localPath) {
+    async _checkSharedPostalBox(localPath) {
+        try {
+            const content = await fs.readFile(localPath)
+            const capability = JSON.parse(content)
+            await this._keyring.addCapability(capability)
+            this.emit(IntegrityChecker.ADD_CAPABILITY, { localPath, remotePath: this._remotePath(localPath), capability })
+        } catch (error) {
+            this.emit(IntegrityChecker.ADD_CAPABILITY_FAILED, { localPath, remotePath: this._remotePath(localPath), error })
+        }
+    }
+
+    async _checkOwnPostalbox(localPath) {
         try {
             const { sk, pk } = await this._keyring.getUserKeyPair()
             const content = await fs.readFile(localPath)
@@ -240,11 +260,15 @@ class IntegrityChecker extends EventEmitter {
 
             for (const capability of capabilities) {
                 await this._keyring.addCapability(capability)
-                console.log(`added capability ${capability.type} for ${capability.path} to keyring`)
+                this.emit(IntegrityChecker.ADD_CAPABILITY, { localPath, remotePath: this._remotePath(localPath), capability })
             }
         } catch (error) {
-            console.log(`checkPostalbox ERROR: ${error}`)
+            this.emit(IntegrityChecker.ADD_CAPABILITY_FAILED, { localPath, remotePath: this._remotePath(localPath), error })
         }
+    }
+
+    _remotePath(localPath) {
+        return "/" + relative(this._watchPath, localPath)
     }
 }
 

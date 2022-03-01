@@ -27,6 +27,9 @@ const FILE_DELETE_PREFIX_BUFFER = Buffer.from("2E96CNuTm63uwUlvjSWiXaOtU8xk48qh0
 
 const DAEMON_CONTENT_HASH_STORE_PATH = resolve("./daemons/hash-store.json")
 
+const POSTAL_BOX = "/users"
+const POSTAL_BOX_SHARED = join("/", "users", "shared")
+
 module.exports = {
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,
@@ -42,5 +45,7 @@ module.exports = {
     MOUNT_DIR,
     FSP_ACCESS_TOKEN,
     FILE_DELETE_PREFIX_BUFFER,
-    DAEMON_CONTENT_HASH_STORE_PATH
+    DAEMON_CONTENT_HASH_STORE_PATH,
+    POSTAL_BOX_SHARED,
+    POSTAL_BOX
 }

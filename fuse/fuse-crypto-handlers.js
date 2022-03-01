@@ -7,12 +7,13 @@ const lock = require("fd-lock")
 const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
 const FileHandle = require("./file-handle")
-const { CAPABILITY_TYPE_WRITE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, BASE_DIR } = require("../constants.js")
+const { CAPABILITY_TYPE_WRITE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, BASE_DIR, CAPABILITY_TYPE_VERIFY, POSTAL_BOX_SHARED } = require("../constants.js")
 const { createDeleteFileContent } = require("../file-delete-utils.js")
 const FSError = require("./fs-error.js")
+const { v4: uuidv4 } = require("uuid")
 
 function ignored(path) {
-    return basename(path).startsWith("._") || path === "/.DS_Store"
+    return basename(path).startsWith("._") || path === "/.DS_Store" || basename(path).startsWith(".fuse_hidden")
 }
 /**
  * Computes the size of a plaintext message based on the size of the file on disk.
@@ -74,7 +75,7 @@ class FuseHandlers {
 
     /**
      * Provides information about the file system.
-     * We obtain this information from the file system on which the FSP directory resides. 
+     * We obtain this information from the file system on which the FSP directory resides.
      */
     async statfs(path) {
         const res = await statvfs(BASE_DIR)
@@ -239,9 +240,31 @@ class FuseHandlers {
         const cleanedBasename = basename(path).split(".").slice(0, 2).join(".") // remove potential suffixes starting with "." Eg "/picture.jpg.sb-ab52335b-nePMlX" becomes "picture.jpg"
         let capabilities
         if (parentName.startsWith(cleanedBasename)) {
+            // The 'path' represents a resource-fork or ephemeral file. Re-use the capabilities attached to the original file.
             capabilities = await this.keyring.getCapabilitiesWithPath(join("/", grandparent, cleanedBasename))
         } else {
-            capabilities = await this.keyring.createNewCapabilitiesForRelativePath(path)
+            // The 'path' represents a new file (not ephemeral/resource fork).
+            // Check if the file has already been created before (FUSE always calls 'create' twice for the same new path)
+            // If there already exist capabilities for the file, we re-use those. Otherwise we generate new capabilities
+            const existingCapabilities = await this.keyring.getCapabilitiesWithPath(path)
+            if (existingCapabilities.length > 0) {
+                capabilities = existingCapabilities // use the existing capabilities
+            } else {
+                // no capabilities exist for this path. Generate new
+                capabilities = await this.keyring.createNewCapabilitiesForRelativePath(path)
+
+                // Write the newly generated verify-key to the shared postal box
+                let { ...verifyCapability } = capabilities.find(cap => cap.type === CAPABILITY_TYPE_VERIFY) // clone the cap to avoid side effects
+                verifyCapability.key = verifyCapability.key.toString("hex")
+                const capabilityLocalFilename = join(BASE_DIR, POSTAL_BOX_SHARED, uuidv4() + ".capability") // use a random basename to avoid name conflicts
+                try {
+                    await fs.writeFile(capabilityLocalFilename, JSON.stringify(verifyCapability))
+                } catch {
+                    // the postal box has not been created. Create it
+                    await fs.mkdir(join(BASE_DIR, POSTAL_BOX_SHARED), { recursive: true })
+                    await fs.writeFile(capabilityLocalFilename, JSON.stringify(verifyCapability))
+                }
+            }
         }
 
         // 'wx+': Open file for reading and writing. Creates file but fails if the path exists.
