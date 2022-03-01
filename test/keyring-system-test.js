@@ -1,8 +1,6 @@
 const assert = require("chai").assert
-const { DropboxProvider } = require("../storage_providers/storage_provider")
 const { join } = require("path")
 const fs = require("fs/promises")
-const { setupLocalAndRemoteTestFolder, teardownLocalAndRemoteTestFolder } = require("./testUtil")
 const crypto = require("../crypto")
 const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilities } = require("../key-management/capability-utils")
 const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY, FSP_ACCESS_TOKEN } = require("../constants")
@@ -10,16 +8,29 @@ const { v4: uuidv4 } = require("uuid")
 const { tmpdir } = require("os")
 const { Dropbox } = require("dropbox")
 
-const dropboxAccessToken = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
 const testDirName = "/keyring-system-test"
 const tempDir = tmpdir()
 
-const fsp = new DropboxProvider(dropboxAccessToken, tempDir)
 const dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
 
 describe("Keyring system test", function () {
     before("setup local and remote test-folder", async function () {
-        await setupLocalAndRemoteTestFolder(tempDir, testDirName, fsp)
+        // setup local test-dir if needed
+        try {
+            await fs.access(join(tempDir, testDirName))
+        } catch {
+            await fs.mkdir(join(tempDir, testDirName))
+        }
+
+        try {
+            // Create FSP test-directory if it does not already exist
+            await dbx.filesCreateFolderV2({ path: testDirName })
+        } catch (err) {
+            // if 409 is returned, it means the folder already exist.
+            if (err.status !== 409) {
+                throw err
+            }
+        }
     })
 
     beforeEach("Clear local and remote test-folder if necessary", async function () {
@@ -39,7 +50,12 @@ describe("Keyring system test", function () {
 
     after("tear down local test folder", async function () {
         this.timeout(10 * 1000)
-        await teardownLocalAndRemoteTestFolder(tempDir, testDirName, fsp)
+
+        // tear-down fsp test-directory
+        await dbx.filesDeleteV2({ path: testDirName })
+
+        // tear-down local test directory
+        await fs.rm(join(tempDir, testDirName), { recursive: true, force: true })
     })
 
     it("one user shares capabilities with another user", async function () {
