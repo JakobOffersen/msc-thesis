@@ -1,5 +1,5 @@
 const sodium = require("sodium-native")
-const { join, resolve } = require("path")
+const { join } = require("path")
 const homedir = require("os").homedir()
 
 const MAC_LENGTH = sodium.crypto_aead_xchacha20poly1305_ietf_ABYTES
@@ -19,11 +19,11 @@ const LOCAL_KEYRING_PATH = join(__dirname, "keys", "local.keyring")
 const LOCAL_USERPAIR_PATH = join(__dirname, "keys", "user.keys")
 
 const BASE_DIR = join(homedir, "Dropbox")
-const MOUNT_DIR = resolve("./mnt")
+const MOUNT_DIR = join(__dirname, "mnt")
 
 const FSP_ACCESS_TOKEN = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
 
-const DAEMON_CONTENT_HASH_STORE_PATH = resolve("./daemons/hash-store.json")
+const DAEMON_CONTENT_HASH_STORE_PATH = join(__dirname, "daemons", "hash-store.json")
 
 const POSTAL_BOX = "/users"
 const POSTAL_BOX_SHARED = join("/", "users", "shared")
