@@ -23,8 +23,6 @@ const MOUNT_DIR = resolve("./mnt")
 
 const FSP_ACCESS_TOKEN = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
 
-const FILE_DELETE_PREFIX_BUFFER = Buffer.from("2E96CNuTm63uwUlvjSWiXaOtU8xk48qh0Gjz83sf")
-
 const DAEMON_CONTENT_HASH_STORE_PATH = resolve("./daemons/hash-store.json")
 
 const POSTAL_BOX = "/users"
@@ -44,7 +42,6 @@ module.exports = {
     BASE_DIR,
     MOUNT_DIR,
     FSP_ACCESS_TOKEN,
-    FILE_DELETE_PREFIX_BUFFER,
     DAEMON_CONTENT_HASH_STORE_PATH,
     POSTAL_BOX_SHARED,
     POSTAL_BOX

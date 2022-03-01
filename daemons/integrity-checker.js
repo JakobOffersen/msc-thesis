@@ -8,16 +8,8 @@ const { Dropbox } = require("dropbox")
 const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
-const { verifyCombined, verifyDetached, decryptAsymmetric, Hasher } = require("../crypto")
-const { fileAtPathMarkedAsDeleted } = require("../file-delete-utils")
-const {
-    STREAM_CIPHER_CHUNK_SIZE,
-    SIGNATURE_SIZE,
-    FSP_ACCESS_TOKEN,
-    FILE_DELETE_PREFIX_BUFFER,
-    DAEMON_CONTENT_HASH_STORE_PATH,
-    POSTAL_BOX_SHARED
-} = require("../constants")
+const { verifyDetached, decryptAsymmetric, Hasher } = require("../crypto")
+const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, DAEMON_CONTENT_HASH_STORE_PATH, POSTAL_BOX_SHARED } = require("../constants")
 const debounce = require("debounce")
 const { inversePromise } = require("../test/testUtil")
 const ContentHashStore = require("./content-hash-store")
@@ -120,33 +112,25 @@ class IntegrityChecker extends EventEmitter {
     }
 
     async _verify({ localPath, remotePath, eventType }) {
+        if (extname(localPath) === ".deleted" && eventType === "unlink") return false // we dont allow .deleted files to be deleted
+
         const verifyCapability = await this._keyring.getCapabilityWithPathAndType(remotePath, "verify")
         if (!verifyCapability) return true // we accept files we cannot check.
 
-        if (extname(localPath) === ".deleted" && eventType === "unlink") return false // we dont allow .deleted files to be deleted
-
         try {
-            const hasDeleteMark = await fileAtPathMarkedAsDeleted(localPath) // throws if the file does not exist
-
-            if (hasDeleteMark) {
+            if (eventType === "unlink") {
                 // step 1)
                 // A valid delete follows the schema:
-                //      <delete-prefix><signature(remote-path)>
+                //      <signature(remote-path)>
                 // Thus we accept the file-delete iff
-                // 1) the prefix is present and correct AND
-                // 2) the signature is present and correct AND
-                // 3) the signed message is the remote path of the file
+                // 1) the signature is present
+                // 2) the signed message is the remote path of the file
 
-                // read the signature from the file
-                if (extname(localPath) !== ".deleted") localPath = localPath + ".deleted"
-                const content = await fs.readFile(localPath)
-                const signedMessage = content.subarray(FILE_DELETE_PREFIX_BUFFER.length)
-                const { verified, message } = verifyCombined(signedMessage, verifyCapability.key)
+                const deleteMarkerLocalPath = localPath + ".deleted"
+                const signature = await fs.readFile(deleteMarkerLocalPath)
+                const verified = verifyDetached(signature, Buffer.from(remotePath), verifyCapability.key)
 
                 if (!verified) return false // the signature is not valid. No need to check further
-
-                const remotePathWithoutDeletedExtension = remotePath.replace(".deleted", "") // remove the .deleted extension
-                return Buffer.compare(message, Buffer.from(remotePathWithoutDeletedExtension)) === 0
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash of the content
@@ -162,10 +146,9 @@ class IntegrityChecker extends EventEmitter {
             // -2 : file does not exist => file must have been deleted => cannot be verified
             if (error.errno === -2) {
                 return false
-            } else {
-                console.trace()
-                throw error
             }
+
+            throw error
         }
     }
 

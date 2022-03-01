@@ -8,7 +8,6 @@ const fsFns = require("../fsFns.js")
 const Fuse = require("fuse-native")
 const FileHandle = require("./file-handle")
 const { CAPABILITY_TYPE_WRITE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, BASE_DIR, CAPABILITY_TYPE_VERIFY, POSTAL_BOX_SHARED } = require("../constants.js")
-const { createDeleteFileContent } = require("../file-delete-utils.js")
 const FSError = require("./fs-error.js")
 const { v4: uuidv4 } = require("uuid")
 
@@ -64,6 +63,7 @@ class FuseHandlers {
     async #ensureCapability(path, capabilityType) {
         const capability = await this.keyring.getCapabilityWithPathAndType(path, capabilityType)
         if (!capability) throw new FSError(Fuse.EACCES)
+        return capability
     }
 
     async init() {}
@@ -289,23 +289,22 @@ class FuseHandlers {
 
     /**
      * Delete a file.
-     * This means replacing file contents with a signed marker and renaming the file.
+     * This means replacing the file with a signed marker.
      */
     async unlink(path) {
         const fullPath = this.#resolvedPath(path)
         if (ignored(path)) return await fs.unlink(fullPath)
 
         // Deleting a file requires write capabilities for that file.
-        await this.#ensureCapability(path, CAPABILITY_TYPE_WRITE)
+        const writeCapability = await this.#ensureCapability(path, CAPABILITY_TYPE_WRITE)
 
-        const writeCapability = await this.keyring.getCapabilityWithPathAndType(path, CAPABILITY_TYPE_WRITE)
-
-        const content = createDeleteFileContent(writeCapability.key, path)
-        // Truncate the file when opening a file descriptor.
+        const signature = crypto.signDetached(Buffer.from(path), writeCapability.key)
+        
+        // Truncate the file when opening file descriptor.
         const fd = await this.open(path, fsConstants.O_RDWR | fsConstants.O_TRUNC)
 
         try {
-            await fsFns.write(fd, content, 0, content.length, 0)
+            await fsFns.write(fd, signature, 0, signature.byteLength, 0)
             await fs.rename(fullPath, fullPath + ".deleted") // Mark the file with an extension to more easily distinguish it from non-deleted files.
         } finally {
             // Close file descriptor
