@@ -44,6 +44,12 @@ function callbackifyHandlers(handlers) {
     return obj
 }
 
+async function sleep(duration) {
+    return Promise((resolve, _) => {
+        setTimeout(resolve, duration)
+    })
+}
+
 function beforeShutdown(handler) {
     SHUTDOWN_HANDLERS.push(handler)
 }
@@ -70,5 +76,6 @@ SHUTDOWN_SIGNALS.forEach(signal => process.once(signal, exitHandler))
 module.exports = {
     callbackify,
     callbackifyHandlers,
+    sleep,
     beforeShutdown
 }

@@ -11,8 +11,8 @@ const sodium = require("sodium-native")
 const { verifyDetached, decryptAsymmetric, Hasher } = require("../crypto")
 const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, DAEMON_CONTENT_HASH_STORE_PATH, POSTAL_BOX_SHARED } = require("../constants")
 const debounce = require("debounce")
-const { inversePromise } = require("../test/testUtil")
 const ContentHashStore = require("./content-hash-store")
+const { sleep } = require("../util.js")
 
 /// IntegrityChecker reacts to changes on 'watchPath' (intended to be the FSP directory)
 /// and verifies each change against 'predicate'.
@@ -180,9 +180,7 @@ class IntegrityChecker extends EventEmitter {
             }
             throw new Error("_restore gone wrong")
         } catch {
-            const { resolve, promise } = inversePromise()
-            setTimeout(resolve, 1000)
-            await promise
+            await sleep(1000)
             await this._restore({ remotePath, contentHash, retries: retries + 1 })
         }
     }
