@@ -1,39 +1,62 @@
 const fs = require("fs/promises")
-const { path, join, dirname } = require("path")
+const { dirname } = require("path")
 
 class ContentHashStore {
     constructor(storePath) {
         this.storePath = storePath
-        this.hashes // (remote-path) => [content-hash]. Newest content hash is the last entry
+        this.hashes = undefined // (remote-path) => [content-hash]. Newest content hash is the last entry
     }
 
-    /// adds 'hash' to the list of content hashes for 'path'. Automatically saves to disk.
+    /**
+     * Adds `hash` to the list of content hashes for `path`. Automatically saves to disk.
+     * @param {*} path
+     * @param {*} hash
+     */
     async add(path, hash) {
-        if (!this.hashes) this.hashes = await this._read()
+        await this.#init()
 
-        this._append(path, hash)
-        await this._save()
+        this.#append(path, hash)
+        await this.#save()
     }
 
-    /// returns true iff the list of hashes of 'path' contains 'hash'
+    /**
+     * Returns true if the store already contains `hash` for `path`.
+     * @param {*} path
+     * @param {*} hash
+     * @returns
+     */
     async has(path, hash) {
-        if (!this.hashes) this.hashes = await this._read()
+        await this.#init()
 
-        return this.hashes.has(path) && this.hashes.get(path).includes(hash)
+        return this.hashes.get(path)?.includes(hash)
     }
 
+    /**
+     * Returns the newest hash for `path` or null if we don't have any.
+     * @param {*} path
+     * @returns
+     */
     async newest(path) {
-        if (!this.hashes) this.hashes = await this._read()
+        await this.#init()
 
-        if (!this.hashes.has(path)) return null
+        const list = this.hashes.get(path)
+        if (!list || list.length === 0) return null
 
-        const hashes = this.hashes.get(path)
-
-        return hashes[hashes.length - 1] // return the last entry, since newer entries are appended.
+        return list[list.length - 1] // return the last entry, since newer entries are appended.
     }
 
-    /// Appends 'hash' to the array of 'path'
-    async _append(path, hash) {
+    async #init() {
+        if (!this.hashes) {
+            this.hashes = await this.#read()
+        }
+    }
+
+    /**
+     * Appends `hash` to the array of `path`
+     * @param {*} path
+     * @param {*} hash
+     */
+    async #append(path, hash) {
         if (!this.hashes.has(path)) this.hashes.set(path, [])
 
         let hashes = this.hashes.get(path)
@@ -41,7 +64,7 @@ class ContentHashStore {
         this.hashes.set(path, hashes)
     }
 
-    async _read() {
+    async #read() {
         try {
             const content = await fs.readFile(this.storePath)
             return JSON.parse(content, reviver)
@@ -51,21 +74,20 @@ class ContentHashStore {
         }
     }
 
-    async _save() {
+    async #save() {
         try {
             await fs.writeFile(this.storePath, JSON.stringify(this.hashes, replacer, 2))
         } catch {
             // the path does not exist. create it
             const dirpath = dirname(this.storePath)
             await fs.mkdir(dirpath, { recursive: true })
-            await this._save()
+            await this.#save()
         }
     }
 }
 
 function replacer(_, value) {
     if (!(value instanceof Map)) return value
-
     return { dataType: "Map", value: [...value] }
 }
 
