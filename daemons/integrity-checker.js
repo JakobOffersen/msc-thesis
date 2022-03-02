@@ -69,11 +69,13 @@ class IntegrityChecker extends EventEmitter {
             this.emit(IntegrityChecker.READY)
 
             // check the shared postal box for capabilities
-            const sharedPostalBoxPaths = (await fs.readdir(join(BASE_DIR, POSTAL_BOX_SHARED))).map(p => join(BASE_DIR, POSTAL_BOX_SHARED, p))
+            try {
+                const sharedPostalBoxPaths = (await fs.readdir(join(BASE_DIR, POSTAL_BOX_SHARED))).map(p => join(BASE_DIR, POSTAL_BOX_SHARED, p))
 
-            for (const p of sharedPostalBoxPaths) {
-                await this._checkSharedPostalBox(p)
-            }
+                for (const p of sharedPostalBoxPaths) {
+                    await this._checkSharedPostalBox(p)
+                }
+            } catch {}
         })
 
         // We use a job-queue for the rollback-jobs.
