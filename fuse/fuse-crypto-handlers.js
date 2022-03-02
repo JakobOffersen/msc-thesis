@@ -10,6 +10,7 @@ const FileHandle = require("./file-handle")
 const { CAPABILITY_TYPE_WRITE, STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, BASE_DIR, CAPABILITY_TYPE_VERIFY, POSTAL_BOX_SHARED } = require("../constants.js")
 const FSError = require("./fs-error.js")
 const { v4: uuidv4 } = require("uuid")
+const crypto = require("../crypto")
 
 function ignored(path) {
     return basename(path).startsWith("._") || path === "/.DS_Store" || basename(path).startsWith(".fuse_hidden")
@@ -299,7 +300,7 @@ class FuseHandlers {
         const writeCapability = await this.#ensureCapability(path, CAPABILITY_TYPE_WRITE)
 
         const signature = crypto.signDetached(Buffer.from(path), writeCapability.key)
-        
+
         // Truncate the file when opening file descriptor.
         const fd = await this.open(path, fsConstants.O_RDWR | fsConstants.O_TRUNC)
 

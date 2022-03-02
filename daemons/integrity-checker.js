@@ -130,7 +130,7 @@ class IntegrityChecker extends EventEmitter {
                 const signature = await fs.readFile(deleteMarkerLocalPath)
                 const verified = verifyDetached(signature, Buffer.from(remotePath), verifyCapability.key)
 
-                if (!verified) return false // the signature is not valid. No need to check further
+                return verified
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash of the content
