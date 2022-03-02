@@ -3,13 +3,21 @@ const EventEmitter = require("events")
 const fs = require("fs/promises")
 const { createReadStream } = require("fs")
 const queue = require("async/queue")
-const { basename, dirname, extname, relative } = require("path")
+const { basename, dirname, extname, relative, join } = require("path")
 const { Dropbox } = require("dropbox")
 const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
 const { verifyDetached, decryptAsymmetric, Hasher } = require("../crypto")
-const { STREAM_CIPHER_CHUNK_SIZE, SIGNATURE_SIZE, FSP_ACCESS_TOKEN, DAEMON_CONTENT_HASH_STORE_PATH, POSTAL_BOX_SHARED } = require("../constants")
+const {
+    STREAM_CIPHER_CHUNK_SIZE,
+    SIGNATURE_SIZE,
+    FSP_ACCESS_TOKEN,
+    DAEMON_CONTENT_HASH_STORE_PATH,
+    POSTAL_BOX_SHARED,
+    CAPABILITY_TYPE_VERIFY,
+    BASE_DIR
+} = require("../constants")
 const debounce = require("debounce")
 const ContentHashStore = require("./content-hash-store")
 const { sleep } = require("../util.js")
@@ -54,11 +62,18 @@ class IntegrityChecker extends EventEmitter {
         // Chokiar emits 'add' for all existing files in the watched directory
         // To only watch for future changes, we only add our 'add' listener after
         // the initial scan has occured.
-        this._watcher.on("ready", () => {
+        this._watcher.on("ready", async () => {
             this._watcher.on("add", this._onAdd.bind(this))
             this._watcher.on("change", this._onChange.bind(this))
             this._watcher.on("unlink", this._onUnlink.bind(this))
             this.emit(IntegrityChecker.READY)
+
+            // check the shared postal box for capabilities
+            const sharedPostalBoxPaths = (await fs.readdir(join(BASE_DIR, POSTAL_BOX_SHARED))).map(p => join(BASE_DIR, POSTAL_BOX_SHARED, p))
+
+            for (const p of sharedPostalBoxPaths) {
+                await this._checkSharedPostalBox(p)
+            }
         })
 
         // We use a job-queue for the rollback-jobs.
@@ -231,8 +246,12 @@ class IntegrityChecker extends EventEmitter {
         try {
             const content = await fs.readFile(localPath)
             const capability = JSON.parse(content)
-            await this._keyring.addCapability(capability)
-            this.emit(IntegrityChecker.ADD_CAPABILITY, { localPath, remotePath: this._remotePath(localPath), capability })
+            // check if the keyring already contains the capability
+            const existing = await this._keyring.getCapabilityWithPathAndType(capability.path, CAPABILITY_TYPE_VERIFY)
+            if (!existing) {
+                await this._keyring.addCapability(capability)
+                this.emit(IntegrityChecker.ADD_CAPABILITY, { localPath, remotePath: this._remotePath(localPath), capability })
+            }
         } catch (error) {
             this.emit(IntegrityChecker.ADD_CAPABILITY_FAILED, { localPath, remotePath: this._remotePath(localPath), error })
         }
