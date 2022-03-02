@@ -166,22 +166,27 @@ class IntegrityChecker extends EventEmitter {
 
     /// Restores to the revision having 'contentHash'
     async _restore({ remotePath, contentHash, retries = 0 } = {}) {
+        console.log("_restore")
         if (retries === 10) throw new Error(`failed _restore ${remotePath}. Tried ${retries} times`)
 
-        const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
-
-        let entries = response.result.entries
-
         try {
+            const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
+            console.log(response.status)
+            let entries = response.result.entries
+
             for (const entry of entries) {
                 if (entry.content_hash === contentHash) {
-                    await this._dbx.filesRestore({ path: remotePath, rev: entry.rev }) // this may throw
+                    console.log("found match", remotePath, entry.rev)
+                    const resp = await this._dbx.filesRestore({ path: remotePath, rev: entry.rev }) // this may throw
+                    console.log(resp.status)
                     return
                 }
             }
             throw new Error("_restore gone wrong")
         } catch {
+            console.log("retry ...")
             await sleep(1000)
+            console.log("retry over ...")
             await this._restore({ remotePath, contentHash, retries: retries + 1 })
         }
     }

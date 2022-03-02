@@ -45,7 +45,7 @@ function callbackifyHandlers(handlers) {
 }
 
 async function sleep(duration) {
-    return Promise((resolve, _) => {
+    return new Promise((resolve, _) => {
         setTimeout(resolve, duration)
     })
 }
