@@ -118,7 +118,7 @@ class IntegrityChecker extends EventEmitter {
         if (!verifyCapability) return true // we accept files we cannot check.
 
         try {
-            if (eventType === "unlink") {
+            if (eventType === "unlink" || extname(localPath) === ".deleted") {
                 // step 1)
                 // A valid delete follows the schema:
                 //      <signature(remote-path)>
@@ -126,9 +126,10 @@ class IntegrityChecker extends EventEmitter {
                 // 1) the signature is present
                 // 2) the signed message is the remote path of the file
 
-                const deleteMarkerLocalPath = localPath + ".deleted"
-                const signature = await fs.readFile(deleteMarkerLocalPath)
-                const verified = verifyDetached(signature, Buffer.from(remotePath), verifyCapability.key)
+                const localPathWithDeleteMark = extname(localPath) === ".deleted" ? localPath : localPath + ".deleted"
+                const remotePathWithoutDeletedMark = extname(remotePath) === ".deleted" ? remotePath.replace(".deleted", "") : remotePath
+                const signature = await fs.readFile(localPathWithDeleteMark)
+                const verified = verifyDetached(signature, Buffer.from(remotePathWithoutDeletedMark), verifyCapability.key)
 
                 return verified
             } else {
