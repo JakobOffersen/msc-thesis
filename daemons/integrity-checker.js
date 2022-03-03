@@ -108,17 +108,17 @@ class IntegrityChecker extends EventEmitter {
                 // Restore to to the newest revision
                 const response = await dbx.filesListRevisions({ path: remotePath })
                 const newest = response.result.entries[0]
-                await retry({
-                    fn: async () => await dbx.filesRestore({ path: remotePath, rev: newest.rev }),
-                    until: response => response.status === 200
-                })
+                await retry(
+                    async () => await dbx.filesRestore({ path: remotePath, rev: newest.rev }),
+                    response => response.status === 200
+                )
                 return this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
             }
 
-            const response = await retry({
-                fn: async () => await dbx.filesListRevisions({ path: remotePath }),
-                until: response => !!response.result.entries.find(r => r.content_hash === contentHash) // returns 'true' if a revision matches 'contentHash' else 'false'
-            })
+            const response = await retry(
+                async () => await dbx.filesListRevisions({ path: remotePath }),
+                response => !!response.result.entries.find(r => r.content_hash === contentHash) // returns 'true' if a revision matches 'contentHash' else 'false'
+            )
 
             const revs = response.result.entries
             const rxIndex = revs.findIndex(r => r.content_hash === contentHash)
@@ -145,11 +145,11 @@ class IntegrityChecker extends EventEmitter {
                             if (!rw) {
                                 this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 
-                                await retry({
+                                await retry(
                                     // retry restore until it succeeeds (max 10 retries)
-                                    fn: async () => await dbx.filesRestore({ path: remotePath, rev: rz.rev }),
-                                    until: response => response.status === 200
-                                })
+                                    async () => await dbx.filesRestore({ path: remotePath, rev: rz.rev }),
+                                    response => response.status === 200
+                                )
 
                                 return this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
                             } else {
@@ -167,11 +167,11 @@ class IntegrityChecker extends EventEmitter {
 
                 const { rev: newestValidRevisionID } = revs.find(({ rev }) => !this._invalidRevisionsStore.has(remotePath, rev))
 
-                await retry({
+                await retry(
                     // retry restore until it succeeeds (max 10 retries)
-                    fn: async () => await dbx.filesRestore({ path: remotePath, rev: newestValidRevisionID }),
-                    until: response => response.status === 200
-                })
+                    async () => await dbx.filesRestore({ path: remotePath, rev: newestValidRevisionID }),
+                    response => response.status === 200
+                )
 
                 this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
             }
@@ -377,15 +377,22 @@ async function ciphertextHash(localPath) {
     return hasher.final()
 }
 
-async function retry({ fn, until, retries = 0 } = {}) {
-    if (retries === 10) throw new Error(`Retry of fn ${fn.name ?? fn} failed`)
+/**
+ * 
+ * @param {*} fn - function to be retried
+ * @param {*} until - function that determines if invocation was successful
+ * @param {*} retries - number of times to retry before giving up
+ * @returns 
+ */
+async function retry(fn, until, retries = 10) {
+    if (retries === 0) throw new Error(`Retry of fn ${fn.name ?? fn} failed`)
     try {
         const res = await fn()
         if (until(res)) return res
         throw new Error("is caught below")
     } catch (error) {
         await sleep(1000)
-        return await retry({ fn, until, retries: retries + 1 })
+        return await retry(fn, until, retries - 1)
     }
 }
 
