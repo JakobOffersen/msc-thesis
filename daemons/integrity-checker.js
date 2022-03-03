@@ -21,6 +21,7 @@ const {
 const debounce = require("debounce")
 const { sleep } = require("../util.js")
 const RevisionStore = require("./SetStore")
+const dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
 
 /// IntegrityChecker reacts to changes on 'watchPath' (intended to be the FSP directory)
 /// and verifies each change against 'predicate'.
@@ -41,7 +42,6 @@ class IntegrityChecker extends EventEmitter {
 
     constructor(watchPath, keyring, username) {
         super()
-        this._dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
         this._watchPath = watchPath
         this._keyring = keyring
         this._username = username
@@ -106,31 +106,22 @@ class IntegrityChecker extends EventEmitter {
                 // localpath has been deleted
                 this.emit(IntegrityChecker.CONFLICT_FOUND, job)
                 // Restore to to the newest revision
-                const response = await this._dbx.filesListRevisions({ path: remotePath })
+                const response = await dbx.filesListRevisions({ path: remotePath })
                 const newest = response.result.entries[0]
                 await retry({
-                    fn: (async () => {
-                        return await this._dbx.filesRestore({ path: remotePath, rev: newest.rev })
-                    }).bind(this),
+                    fn: async () => await dbx.filesRestore({ path: remotePath, rev: newest.rev }),
                     until: response => response.status === 200
                 })
                 return this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
             }
 
             const response = await retry({
-                fn: (async () => {
-                    const constRemotePathCorrected = extname(remotePath) === ".deleted" ? remotePath.replace(".deleted", "") : remotePath
-                    return await this._dbx.filesListRevisions({ path: constRemotePathCorrected })
-                }).bind(this),
-                until: response => {
-                    if (!contentHash) return true
-                    const found = response.result.entries.find(r => r.content_hash === contentHash)
-                    return !!found
-                }
+                fn: async () => await dbx.filesListRevisions({ path: remotePath }),
+                until: response => !!response.result.entries.find(r => r.content_hash === contentHash) // returns 'true' if a revision matches 'contentHash' else 'false'
             })
 
             const revs = response.result.entries
-            const rxIndex = !!contentHash ? revs.findIndex(r => r.content_hash === contentHash) : 0
+            const rxIndex = revs.findIndex(r => r.content_hash === contentHash)
             const rx = revs[rxIndex]
 
             if (verified) {
@@ -142,7 +133,7 @@ class IntegrityChecker extends EventEmitter {
                     const seq = revs.slice(rxIndex + 1, ryIndex) // the list of revisions inbetween the
 
                     for (rz of seq) {
-                        const fileContent = (await this._dbx.filesDownload({ path: "rev:" + rz.rev })).result.fileBinary
+                        const fileContent = (await dbx.filesDownload({ path: "rev:" + rz.rev })).result.fileBinary
                         let verified = await this._verify({ localPath, remotePath, eventType, contents: fileContent })
 
                         if (verified) {
@@ -150,9 +141,7 @@ class IntegrityChecker extends EventEmitter {
 
                             await retry({
                                 // retry restore until it succeeeds (max 10 retries)
-                                fn: (async () => {
-                                    return await this._dbx.filesRestore({ path: remotePath, rev: rz.rev })
-                                }).bind(this),
+                                fn: async () => await dbx.filesRestore({ path: remotePath, rev: rz.rev }),
                                 until: response => response.status === 200
                             })
 
@@ -171,43 +160,12 @@ class IntegrityChecker extends EventEmitter {
 
                 await retry({
                     // retry restore until it succeeeds (max 10 retries)
-                    fn: (async () => {
-                        return await this._dbx.filesRestore({ path: remotePath, rev: newestValidRevisionID })
-                    }).bind(this),
+                    fn: async () => await dbx.filesRestore({ path: remotePath, rev: newestValidRevisionID }),
                     until: response => response.status === 200
                 })
 
                 this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
             }
-
-            // -------------------
-            // check if the content hash has been seen before. If it has, we conclude that the file has
-            // been restored to an older revision, which is not allowed. In that case we re-store to the
-            // newest valid version of the file
-            // if (verified) {
-            //     const path = eventType === "unlink" ? localPath + ".deleted" : localPath
-            //     const contentHash = await dropboxContentHash(path)
-            //     const seenBefore = await this._hashStore.has(remotePath, contentHash)
-            //     const newest = await this._hashStore.newest(remotePath)
-
-            //     if (seenBefore && newest !== contentHash) {
-            //         this.emit(IntegrityChecker.CONFLICT_FOUND, job)
-
-            //         await this._restore({ remotePath, contentHash: newest })
-
-            //         this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
-            //     } else {
-            //         await this._hashStore.add(remotePath, contentHash)
-            //         return this.emit(IntegrityChecker.NO_CONFLICT, job)
-            //     }
-            // } else {
-            //     this.emit(IntegrityChecker.CONFLICT_FOUND, job)
-
-            //     const newest = await this._hashStore.newest(remotePath)
-            //     await this._restore({ remotePath, contentHash: newest })
-
-            //     this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
-            // }
         })
 
         // This is called if any worker fails (e.g throws an error)
@@ -278,62 +236,6 @@ class IntegrityChecker extends EventEmitter {
         const remotePath = this._remotePath(localPath)
         const job = { localPath, remotePath, ...opts }
         this._jobQueue.push(job)
-    }
-
-    // async _restoreTo({ remotePath, revID, retries = 0 } = {}) {
-    //     if (retries === 10) throw new Error(`failed _restoreTo ${remotePath}. Tried ${retries} times`)
-
-    //     try {
-    //         await this._dbx.filesRestore({ path: remotePath, rev: revID })
-    //     } catch {
-    //         await sleep(1000)
-    //         await this._restoreTo({ remotePath, revID, retries: retries + 1 })
-    //     }
-    // }
-
-    /// Restores to the revision having 'contentHash'
-    async _restore({ remotePath, contentHash, retries = 0 } = {}) {
-        console.log("_restore")
-        if (retries === 10) throw new Error(`failed _restore ${remotePath}. Tried ${retries} times`)
-
-        try {
-            const response = await this._dbx.filesListRevisions({ path: remotePath, mode: "path", limit: 10 })
-            console.log(response.status)
-            let entries = response.result.entries
-
-            for (const entry of entries) {
-                if (entry.content_hash === contentHash) {
-                    console.log("found match", remotePath, entry.rev)
-                    const resp = await this._dbx.filesRestore({ path: remotePath, rev: entry.rev }) // this may throw
-                    console.log(resp.status)
-                    return
-                }
-            }
-            throw new Error("_restore gone wrong")
-        } catch {
-            console.log("retry ...")
-            await sleep(1000)
-            console.log("retry over ...")
-            await this._restore({ remotePath, contentHash, retries: retries + 1 })
-        }
-    }
-
-    async _fetchRevisionForPath({ contentHash, remotePath, retries = 0 } = {}) {
-        if (retries === 10) throw new Error(`failed _fetchRevisionForPath ${remotePath}. Tried ${retries} times`)
-        try {
-            // Find the ID of the current revision as the first revision matching the content hash of the local revision
-            const revisions = (await this._dbx.filesListRevisions({ path: remotePath, limit: 10 })).result.entries
-
-            const revision = revisions.find(r => r.content_hash === contentHash)
-
-            if (revision) return revision.rev
-
-            await sleep(1000)
-            return await this._fetchRevisionForPath({ contentHash, remotePath, retries: retries + 1 })
-        } catch {
-            await sleep(1000)
-            return await this._fetchRevisionForPath({ contentHash, remotePath, retries: retries + 1 })
-        }
     }
 
     // Performance optimization: If an equivalent job is already pending,
