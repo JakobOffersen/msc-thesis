@@ -11,7 +11,7 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "./daemons/integrity-daemon.js",
+            "program": "./daemon/integrity-daemon.js",
         },
         {
             "type": "pwa-node",
@@ -20,7 +20,7 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "./daemons/integrity-daemon.js",
+            "program": "./daemon/integrity-daemon.js",
             "args": ["alice"]
         },
         {
@@ -30,7 +30,7 @@
             "skipFiles": [
                 "<node_internals>/**"
             ],
-            "program": "./daemons/integrity-daemon.js",
+            "program": "./daemon/integrity-daemon.js",
             "args": ["bob"]
         },
         {

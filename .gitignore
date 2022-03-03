@@ -4,7 +4,7 @@ cache
 test-files
 *.keyring
 *.keys
-daemons/revision-store.json
+daemon/revision-store.json
 
 # Created by https://www.toptal.com/developers/gitignore/api/node,macos,git,dropbox
 # Edit at https://www.toptal.com/developers/gitignore?templates=node,macos,git,dropbox
