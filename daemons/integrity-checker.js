@@ -156,20 +156,23 @@ class IntegrityChecker extends EventEmitter {
                                 return this.emit(IntegrityChecker.NO_CONFLICT, job)
                             }
                         } else {
-                            this._invalidRevisionsStore.add(remotePath, rz.rev)
+                            await this._invalidRevisionsStore.add(remotePath, rz.rev)
                         }
                     }
                 }
                 return this.emit(IntegrityChecker.NO_CONFLICT, job)
             } else {
                 this.emit(IntegrityChecker.CONFLICT_FOUND, job)
-                this._invalidRevisionsStore.add(remotePath, rx.rev)
+                await this._invalidRevisionsStore.add(remotePath, rx.rev)
 
-                const { rev: newestValidRevisionID } = revs.find(({ rev }) => !this._invalidRevisionsStore.has(remotePath, rev))
+                const newestValidRevision = revs.slice(rxIndex + 1).find(async (r) => {
+                    let found = await this._invalidRevisionsStore.has(remotePath, r.rev)
+                    return !found
+                })
 
                 await retry({
                     // retry restore until it succeeeds (max 10 retries)
-                    fn: async () => await dbx.filesRestore({ path: remotePath, rev: newestValidRevisionID }),
+                    fn: async () => await dbx.filesRestore({ path: remotePath, rev: newestValidRevision.rev }),
                     until: response => response.status === 200
                 })
 
@@ -277,7 +280,7 @@ class IntegrityChecker extends EventEmitter {
     }
 
     _debouncePushJob({ localPath, eventType }) {
-        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 8000))
+        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 3000))
         const debounced = this.debouncers.get(localPath)
         this.emit(IntegrityChecker.CHANGE, { remotePath: this._remotePath(localPath), localPath, eventType })
         debounced({ localPath, eventType })
