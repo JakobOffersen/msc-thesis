@@ -13,14 +13,14 @@ const {
     STREAM_CIPHER_CHUNK_SIZE,
     SIGNATURE_SIZE,
     FSP_ACCESS_TOKEN,
-    DAEMON_CONTENT_HASH_STORE_PATH,
     POSTAL_BOX_SHARED,
     CAPABILITY_TYPE_VERIFY,
-    BASE_DIR
+    BASE_DIR,
+    DAEMON_CONTENT_REVISION_STORE_PATH
 } = require("../constants")
 const debounce = require("debounce")
-const ContentHashStore = require("./content-hash-store")
 const { sleep } = require("../util.js")
+const RevisionStore = require("./SetStore")
 
 /// IntegrityChecker reacts to changes on 'watchPath' (intended to be the FSP directory)
 /// and verifies each change against 'predicate'.
@@ -45,16 +45,19 @@ class IntegrityChecker extends EventEmitter {
         this._watchPath = watchPath
         this._keyring = keyring
         this._username = username
-        this._hashStore = new ContentHashStore(DAEMON_CONTENT_HASH_STORE_PATH) // (remote-path) => [valid content hashes]
+        this._invalidRevisionsStore = new RevisionStore(DAEMON_CONTENT_REVISION_STORE_PATH)
+        this.debouncers = new Map() // maps from localPath to debouce
 
         // setup watcher
         this._watcher = chokidar.watch(watchPath, {
             ignored: function (path) {
+                path = path.trim()
                 return (
                     path.match(/(^|[\/\\])\../) || // ignore dot-files and ephemeral files creates by the system
                     basename(dirname(path)).split(".").length > 2 || // eg "file3.txt.sb-ab52335b-BlLaP1/file3.txt"
                     (basename(path).split(".").length > 2 && extname(path) !== ".deleted") || // eg "/milky-way-nasa.jpg.sb-ab52335b-jqZvPa/milky-way-nasa.jpg.sb-ab52335b-j7X3TY"
-                    (path.includes("/users/") && !(path.includes("/users/" + this._username) || path.includes(POSTAL_BOX_SHARED))) // ignore all postal boxes except for your own postal box and the shared postal box
+                    (path.includes("/users/") && !(path.includes("/users/" + this._username) || path.includes(POSTAL_BOX_SHARED))) || // ignore all postal boxes except for your own postal box and the shared postal box
+                    basename(path) === "Icon"
                 )
             }.bind(this),
             persistent: true // indicates that chokidar should continue the process as long as files are watched
@@ -85,50 +88,140 @@ class IntegrityChecker extends EventEmitter {
             if (this._equivalentJobIsPending(job)) return this.emit(IntegrityChecker.EQUIVALENT_CONFLICT_IS_PENDING, job)
 
             const { localPath, remotePath, eventType } = job
-            const verified = await this._verify(job)
+            let verified = await this._verify(job)
 
-            // check if the content hash has been seen before. If it has, we conclude that the file has
-            // been restored to an older revision, which is not allowed. In that case we re-store to the
-            // newest valid version of the file
-            if (verified) {
-                const path = eventType === "unlink" ? localPath + ".deleted" : localPath
-                const contentHash = await dropboxContentHash(path)
-                const seenBefore = await this._hashStore.has(remotePath, contentHash)
-                const newest = await this._hashStore.newest(remotePath)
+            if (verified && (eventType === "unlink" || extname(remotePath) === ".deleted")) {
+                // We dont need to consider replay attacks for a delete-operation,
+                // since they (i.e. 'file.txt' and 'file.txt.deleted') make the end of life
+                // for that file.
+                // => they are always required to be the newest revision for that file
+                // => they cannot make a replay when they are already the newest revision
+                return this.emit(IntegrityChecker.NO_CONFLICT, job)
+            }
 
-                if (seenBefore && newest !== contentHash) {
-                    this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+            let contentHash = undefined
+            try {
+                contentHash = await dropboxContentHash(localPath)
+            } catch {
+                // localpath has been deleted
+                this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+                // Restore to to the newest revision
+                const response = await this._dbx.filesListRevisions({ path: remotePath })
+                const newest = response.result.entries[0]
+                await retry({
+                    fn: (async () => {
+                        return await this._dbx.filesRestore({ path: remotePath, rev: newest.rev })
+                    }).bind(this),
+                    until: response => response.status === 200
+                })
+                return this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+            }
 
-                    await this._restore({ remotePath, contentHash: newest })
-
-                    this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
-                } else {
-                    await this._hashStore.add(remotePath, contentHash)
-                    return this.emit(IntegrityChecker.NO_CONFLICT, job)
+            const response = await retry({
+                fn: (async () => {
+                    const constRemotePathCorrected = extname(remotePath) === ".deleted" ? remotePath.replace(".deleted", "") : remotePath
+                    return await this._dbx.filesListRevisions({ path: constRemotePathCorrected })
+                }).bind(this),
+                until: response => {
+                    if (!contentHash) return true
+                    const found = response.result.entries.find(r => r.content_hash === contentHash)
+                    return !!found
                 }
+            })
+
+            const revs = response.result.entries
+            const rxIndex = !!contentHash ? revs.findIndex(r => r.content_hash === contentHash) : 0
+            const rx = revs[rxIndex]
+
+            if (verified) {
+                // check against replay attacks
+                const ryIndex = revs.findIndex(r => r.content_hash === rx.content_hash && r.rev !== rx.rev)
+
+                if (ryIndex !== -1) {
+                    // Found an earlier revision with content hash matching the current
+                    const seq = revs.slice(rxIndex + 1, ryIndex) // the list of revisions inbetween the
+
+                    for (rz of seq) {
+                        const fileContent = (await this._dbx.filesDownload({ path: "rev:" + rz.rev })).result.fileBinary
+                        let verified = await this._verify({ localPath, remotePath, eventType, contents: fileContent })
+
+                        if (verified) {
+                            this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+
+                            await retry({
+                                // retry restore until it succeeeds (max 10 retries)
+                                fn: (async () => {
+                                    return await this._dbx.filesRestore({ path: remotePath, rev: rz.rev })
+                                }).bind(this),
+                                until: response => response.status === 200
+                            })
+
+                            return this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+                        } else {
+                            this._invalidRevisionsStore.add(remotePath, rz.rev)
+                        }
+                    }
+                }
+                return this.emit(IntegrityChecker.NO_CONFLICT, job)
             } else {
                 this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+                this._invalidRevisionsStore.add(remotePath, rx.rev)
 
-                const newest = await this._hashStore.newest(remotePath)
-                await this._restore({ remotePath, contentHash: newest })
+                const { rev: newestValidRevisionID } = revs.find(({ rev }) => !this._invalidRevisionsStore.has(remotePath, rev))
+
+                await retry({
+                    // retry restore until it succeeeds (max 10 retries)
+                    fn: (async () => {
+                        return await this._dbx.filesRestore({ path: remotePath, rev: newestValidRevisionID })
+                    }).bind(this),
+                    until: response => response.status === 200
+                })
 
                 this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
             }
+
+            // -------------------
+            // check if the content hash has been seen before. If it has, we conclude that the file has
+            // been restored to an older revision, which is not allowed. In that case we re-store to the
+            // newest valid version of the file
+            // if (verified) {
+            //     const path = eventType === "unlink" ? localPath + ".deleted" : localPath
+            //     const contentHash = await dropboxContentHash(path)
+            //     const seenBefore = await this._hashStore.has(remotePath, contentHash)
+            //     const newest = await this._hashStore.newest(remotePath)
+
+            //     if (seenBefore && newest !== contentHash) {
+            //         this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+
+            //         await this._restore({ remotePath, contentHash: newest })
+
+            //         this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+            //     } else {
+            //         await this._hashStore.add(remotePath, contentHash)
+            //         return this.emit(IntegrityChecker.NO_CONFLICT, job)
+            //     }
+            // } else {
+            //     this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+
+            //     const newest = await this._hashStore.newest(remotePath)
+            //     await this._restore({ remotePath, contentHash: newest })
+
+            //     this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+            // }
         })
 
         // This is called if any worker fails (e.g throws an error)
         this._jobQueue.error((error, job) => {
+            console.trace()
             this.emit(IntegrityChecker.CONFLICT_RESOLUTION_FAILED, { error, ...job })
         })
-
-        this.debouncers = new Map() // maps from localPath to debouce
     }
 
     async stopWatching() {
         await this._watcher.close()
     }
 
-    async _verify({ localPath, remotePath, eventType }) {
+    async _verify({ localPath, remotePath, eventType, contents }) {
         if (extname(localPath) === ".deleted" && eventType === "unlink") return false // we dont allow .deleted files to be deleted
 
         const verifyCapability = await this._keyring.getCapabilityWithPathAndType(remotePath, "verify")
@@ -145,20 +238,26 @@ class IntegrityChecker extends EventEmitter {
 
                 const localPathWithDeleteMark = extname(localPath) === ".deleted" ? localPath : localPath + ".deleted"
                 const remotePathWithoutDeletedMark = extname(remotePath) === ".deleted" ? remotePath.replace(".deleted", "") : remotePath
-                const signature = await fs.readFile(localPathWithDeleteMark)
+                const signature = contents ?? (await fs.readFile(localPathWithDeleteMark))
                 const verified = verifyDetached(signature, Buffer.from(remotePathWithoutDeletedMark), verifyCapability.key)
 
                 return verified
             } else {
                 // is a regular write-operation: verify the signature
                 // compute the hash of the content
-                const hash = await ciphertextHash(localPath)
-                const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
-                const fd = await fsFns.open(localPath, "r")
-                await fsFns.read(fd, signature, 0, signature.length, 0)
-                const verified = verifyDetached(signature, hash, verifyCapability.key)
-
-                return verified
+                if (contents) {
+                    const hash = await ciphertextHashContent(contents)
+                    const signature = contents.subarray(sodium.crypto_sign_BYTES)
+                    const verified = verifyDetached(signature, hash, verifyCapability.key)
+                    return verified
+                } else {
+                    const hash = await ciphertextHash(localPath)
+                    const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+                    const fd = await fsFns.open(localPath, "r")
+                    await fsFns.read(fd, signature, 0, signature.length, 0)
+                    const verified = verifyDetached(signature, hash, verifyCapability.key)
+                    return verified
+                }
             }
         } catch (error) {
             // -2 : file does not exist => file must have been deleted => cannot be verified
@@ -180,6 +279,17 @@ class IntegrityChecker extends EventEmitter {
         const job = { localPath, remotePath, ...opts }
         this._jobQueue.push(job)
     }
+
+    // async _restoreTo({ remotePath, revID, retries = 0 } = {}) {
+    //     if (retries === 10) throw new Error(`failed _restoreTo ${remotePath}. Tried ${retries} times`)
+
+    //     try {
+    //         await this._dbx.filesRestore({ path: remotePath, rev: revID })
+    //     } catch {
+    //         await sleep(1000)
+    //         await this._restoreTo({ remotePath, revID, retries: retries + 1 })
+    //     }
+    // }
 
     /// Restores to the revision having 'contentHash'
     async _restore({ remotePath, contentHash, retries = 0 } = {}) {
@@ -205,6 +315,24 @@ class IntegrityChecker extends EventEmitter {
             await sleep(1000)
             console.log("retry over ...")
             await this._restore({ remotePath, contentHash, retries: retries + 1 })
+        }
+    }
+
+    async _fetchRevisionForPath({ contentHash, remotePath, retries = 0 } = {}) {
+        if (retries === 10) throw new Error(`failed _fetchRevisionForPath ${remotePath}. Tried ${retries} times`)
+        try {
+            // Find the ID of the current revision as the first revision matching the content hash of the local revision
+            const revisions = (await this._dbx.filesListRevisions({ path: remotePath, limit: 10 })).result.entries
+
+            const revision = revisions.find(r => r.content_hash === contentHash)
+
+            if (revision) return revision.rev
+
+            await sleep(1000)
+            return await this._fetchRevisionForPath({ contentHash, remotePath, retries: retries + 1 })
+        } catch {
+            await sleep(1000)
+            return await this._fetchRevisionForPath({ contentHash, remotePath, retries: retries + 1 })
         }
     }
 
@@ -293,9 +421,30 @@ async function dropboxContentHash(localPath) {
     })
 }
 
+async function ciphertextHashContent(contents) {
+    const hasher = new Hasher()
+
+    // Compute hash of entire file except the signature in the
+    // same block size as they were written.
+    const cipherSize = contents.length - SIGNATURE_SIZE
+    const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
+    const offset = SIGNATURE_SIZE
+
+    let read = 0
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+        const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
+        const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
+        const block = Buffer.alloc(blockSize)
+        contents.subarray(start, block.length)
+        hasher.update(block)
+        read += blockSize
+    }
+
+    return hasher.final()
+}
+
 // A hash of the content computed in the same way that we compute the hash in FUSE
 async function ciphertextHash(localPath) {
-    //TODO: Lock while reading?
     const hasher = new Hasher()
     const fd = await fsFns.open(localPath, "r")
 
@@ -316,6 +465,18 @@ async function ciphertextHash(localPath) {
     }
 
     return hasher.final()
+}
+
+async function retry({ fn, until, retries = 0 } = {}) {
+    if (retries === 10) throw new Error(`Retry of fn ${fn.name ?? fn} failed`)
+    try {
+        const res = await fn()
+        if (until(res)) return res
+        throw new Error("is caught below")
+    } catch (error) {
+        await sleep(1000)
+        return await retry({ fn, until, retries: retries + 1 })
+    }
 }
 
 module.exports = IntegrityChecker

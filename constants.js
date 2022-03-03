@@ -23,7 +23,7 @@ const MOUNT_DIR = join(__dirname, "mnt")
 
 const FSP_ACCESS_TOKEN = "rxnh5lxxqU8AAAAAAAAAATBaiYe1b-uzEIe4KlOijCQD-Faam2Bx5ykV6XldV86W"
 
-const DAEMON_CONTENT_HASH_STORE_PATH = join(__dirname, "daemons", "hash-store.json")
+const DAEMON_CONTENT_REVISION_STORE_PATH = join(__dirname, "daemons", "revision-store.json")
 
 const POSTAL_BOX = "/users"
 const POSTAL_BOX_SHARED = join("/", "users", "shared")
@@ -42,7 +42,7 @@ module.exports = {
     BASE_DIR,
     MOUNT_DIR,
     FSP_ACCESS_TOKEN,
-    DAEMON_CONTENT_HASH_STORE_PATH,
+    DAEMON_CONTENT_REVISION_STORE_PATH,
     POSTAL_BOX_SHARED,
     POSTAL_BOX
 }

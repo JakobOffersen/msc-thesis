@@ -1,0 +1,14 @@
+{
+  "dataType": "Map",
+  "value": [
+    [
+      "/t2.txt",
+      {
+        "dataType": "Set",
+        "value": [
+          "015d94d11ef65f700000002530d00f0"
+        ]
+      }
+    ]
+  ]
+}
