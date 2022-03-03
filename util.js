@@ -50,6 +50,25 @@ async function sleep(duration) {
     })
 }
 
+/**
+ *
+ * @param {*} fn - function to be retried
+ * @param {*} until - function that determines if invocation was successful
+ * @param {*} retries - number of times to retry before giving up
+ * @returns
+ */
+async function retry(fn, until, retries = 10) {
+    if (retries === 0) throw new Error(`Retry of fn ${fn.name ?? fn} failed`)
+    try {
+        const res = await fn()
+        if (until(res)) return res
+        throw new Error("is caught below")
+    } catch (error) {
+        await sleep(1000)
+        return await retry(fn, until, retries - 1)
+    }
+}
+
 function beforeShutdown(handler) {
     SHUTDOWN_HANDLERS.push(handler)
 }
@@ -77,5 +96,6 @@ module.exports = {
     callbackify,
     callbackifyHandlers,
     sleep,
+    retry,
     beforeShutdown
 }
