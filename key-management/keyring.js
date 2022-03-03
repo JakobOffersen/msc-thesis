@@ -1,5 +1,5 @@
 const fs = require("fs/promises")
-const { relative, resolve, dirname } = require("path")
+const { resolve, dirname } = require("path")
 const { DateTime } = require("luxon")
 const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 const { clone, cloneAll, generateCapabilitiesForPath } = require("./capability-utils")
