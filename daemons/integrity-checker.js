@@ -132,20 +132,29 @@ class IntegrityChecker extends EventEmitter {
                     // Found an earlier revision with content hash matching the current
                     const seq = revs.slice(rxIndex + 1, ryIndex) // the list of revisions inbetween the
 
-                    for (rz of seq) {
+                    for (const rz of seq) {
                         const fileContent = (await dbx.filesDownload({ path: "rev:" + rz.rev })).result.fileBinary
                         let verified = await this._verify({ localPath, remotePath, eventType, contents: fileContent })
 
                         if (verified) {
-                            this.emit(IntegrityChecker.CONFLICT_FOUND, job)
+                            // rx may be a replay.
+                            const rzIndex = revs.findIndex(r => r.rev === rz.rev)
+                            const tail = revs.slice(rzIndex + 1) // the revs starting just after 'rz'
+                            const rw = tail.find(r => r.content_hash === rz.content_hash)
 
-                            await retry({
-                                // retry restore until it succeeeds (max 10 retries)
-                                fn: async () => await dbx.filesRestore({ path: remotePath, rev: rz.rev }),
-                                until: response => response.status === 200
-                            })
+                            if (!rw) {
+                                this.emit(IntegrityChecker.CONFLICT_FOUND, job)
 
-                            return this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+                                await retry({
+                                    // retry restore until it succeeeds (max 10 retries)
+                                    fn: async () => await dbx.filesRestore({ path: remotePath, rev: rz.rev }),
+                                    until: response => response.status === 200
+                                })
+
+                                return this.emit(IntegrityChecker.CONFLICT_RESOLUTION_SUCCEEDED, job)
+                            } else {
+                                return this.emit(IntegrityChecker.NO_CONFLICT, job)
+                            }
                         } else {
                             this._invalidRevisionsStore.add(remotePath, rz.rev)
                         }
@@ -205,7 +214,7 @@ class IntegrityChecker extends EventEmitter {
                 // compute the hash of the content
                 if (contents) {
                     const hash = await ciphertextHashContent(contents)
-                    const signature = contents.subarray(sodium.crypto_sign_BYTES)
+                    const signature = contents.subarray(0, sodium.crypto_sign_BYTES)
                     const verified = verifyDetached(signature, hash, verifyCapability.key)
                     return verified
                 } else {
@@ -268,7 +277,7 @@ class IntegrityChecker extends EventEmitter {
     }
 
     _debouncePushJob({ localPath, eventType }) {
-        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 3000))
+        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 8000))
         const debounced = this.debouncers.get(localPath)
         this.emit(IntegrityChecker.CHANGE, { remotePath: this._remotePath(localPath), localPath, eventType })
         debounced({ localPath, eventType })
@@ -336,8 +345,7 @@ async function ciphertextHashContent(contents) {
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
         const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
         const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
-        const block = Buffer.alloc(blockSize)
-        contents.subarray(start, block.length)
+        const block = contents.subarray(start, start + blockSize)
         hasher.update(block)
         read += blockSize
     }
