@@ -7,6 +7,12 @@ class RevisionStore {
         this.map = undefined // (remote-path) => Set<rev-ID>
     }
 
+    /**
+     * Adds `id` to the set of IDs for `path`. Automatically saves to disk.
+     * @param {*} path
+     * @param {*} id
+     * @returns
+     */
     async add(path, id) {
         await this.#init()
 
@@ -16,9 +22,15 @@ class RevisionStore {
         this.#save()
     }
 
+    /**
+     * Returns true if the store contains revision `id` for `path`.
+     * @param {*} path
+     * @param {*} id
+     * @returns
+     */
     async has(path, id) {
         await this.#init()
-        return this.map.has(path) && this.map.get(path).has(id)
+        return this.map.get(path)?.has(id)
     }
 
     async #init() {

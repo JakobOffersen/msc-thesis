@@ -20,7 +20,8 @@ const {
 } = require("../constants")
 const debounce = require("debounce")
 const { sleep } = require("../util.js")
-const RevisionStore = require("./SetStore")
+const RevisionStore = require("./revision-store.js")
+
 const dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
 
 /// IntegrityChecker reacts to changes on 'watchPath' (intended to be the FSP directory)
@@ -165,7 +166,7 @@ class IntegrityChecker extends EventEmitter {
                 this.emit(IntegrityChecker.CONFLICT_FOUND, job)
                 await this._invalidRevisionsStore.add(remotePath, rx.rev)
 
-                const newestValidRevision = revs.slice(rxIndex + 1).find(async (r) => {
+                const newestValidRevision = revs.slice(rxIndex + 1).find(async r => {
                     let found = await this._invalidRevisionsStore.has(remotePath, r.rev)
                     return !found
                 })
@@ -381,11 +382,11 @@ async function ciphertextHash(localPath) {
 }
 
 /**
- * 
+ *
  * @param {*} fn - function to be retried
  * @param {*} until - function that determines if invocation was successful
  * @param {*} retries - number of times to retry before giving up
- * @returns 
+ * @returns
  */
 async function retry(fn, until, retries = 10) {
     if (retries === 0) throw new Error(`Retry of fn ${fn.name ?? fn} failed`)
