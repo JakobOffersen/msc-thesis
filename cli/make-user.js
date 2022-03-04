@@ -1,7 +1,7 @@
 const { join, dirname, basename } = require("path")
-const Keyring = require("../key-management/keyring")
-const { LOCAL_KEYRING_PATH, LOCAL_USERPAIR_PATH } = require("../constants")
-const makeUser = require("../utilities/make-user")
+const Keyring = require("../key-management/keyring.js")
+const { LOCAL_KEYRING_PATH, LOCAL_USERPAIR_PATH } = require("../constants.js")
+const makeUser = require("../utilities/make-user.js")
 
 const args = process.argv.slice(2)
 const username = args[0] || ""

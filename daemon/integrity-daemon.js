@@ -1,10 +1,10 @@
-const IntegrityChecker = require("./integrity-checker")
-const { beforeShutdown } = require("../util")
+const IntegrityChecker = require("./integrity-checker.js")
+const { beforeShutdown } = require("../utilities/util.js")
 const { DateTime } = require("luxon")
-const Keyring = require("../key-management/keyring")
-const { LOCAL_KEYRING_PATH, LOCAL_USERPAIR_PATH, BASE_DIR } = require("../constants")
+const Keyring = require("../key-management/keyring.js")
+const { LOCAL_KEYRING_PATH, LOCAL_USERPAIR_PATH, BASE_DIR } = require("../constants.js")
 const { join, dirname, basename } = require("path")
-const makeUser = require("../utilities/make-user")
+const makeUser = require("../utilities/make-user.js")
 
 ;(async () => {
     const args = process.argv.slice(2)

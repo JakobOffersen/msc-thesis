@@ -1,7 +1,7 @@
 const { Dropbox } = require("dropbox")
-const { LOCAL_KEYRING_PATH, FSP_ACCESS_TOKEN, LOCAL_USERPAIR_PATH } = require("../constants")
-const Keyring = require("../key-management/keyring")
-const { encryptAsymmetric } = require("../crypto")
+const { LOCAL_KEYRING_PATH, FSP_ACCESS_TOKEN, LOCAL_USERPAIR_PATH } = require("../constants.js")
+const Keyring = require("../key-management/keyring.js")
+const { encryptAsymmetric } = require("../utilities/crypto.js")
 const { join, dirname, basename } = require("path")
 const { v4: uuidv4 } = require("uuid")
 

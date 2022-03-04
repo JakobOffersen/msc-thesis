@@ -3,7 +3,7 @@ const { resolve, dirname } = require("path")
 const { DateTime } = require("luxon")
 const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 const { clone, cloneAll, generateCapabilitiesForPath } = require("./capability-utils")
-const { makeEncryptionKeyPair } = require("../crypto")
+const { makeEncryptionKeyPair } = require("../utilities/crypto")
 const ignore = ["/.DS_Store"]
 
 class Keyring {

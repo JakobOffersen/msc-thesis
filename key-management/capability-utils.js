@@ -1,4 +1,4 @@
-const crypto = require("../crypto")
+const crypto = require("../utilities/crypto")
 const { DateTime } = require("luxon")
 const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY } = require("../constants")
 

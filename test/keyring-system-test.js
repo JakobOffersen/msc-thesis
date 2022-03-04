@@ -1,9 +1,9 @@
 const assert = require("chai").assert
 const { join } = require("path")
 const fs = require("fs/promises")
-const crypto = require("../crypto")
-const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilities } = require("../key-management/capability-utils")
-const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY, FSP_ACCESS_TOKEN } = require("../constants")
+const crypto = require("../utilities/crypto.js")
+const { generateCapabilitiesForPath, decryptCapabilities, encryptCapabilities } = require("../key-management/capability-utils.js")
+const { CAPABILITY_TYPE_READ, CAPABILITY_TYPE_WRITE, CAPABILITY_TYPE_VERIFY, FSP_ACCESS_TOKEN } = require("../constants.js")
 const { v4: uuidv4 } = require("uuid")
 const { tmpdir } = require("os")
 const { Dropbox } = require("dropbox")

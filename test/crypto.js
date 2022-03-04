@@ -1,5 +1,5 @@
 const assert = require("chai").assert
-const crypto = require("../crypto")
+const crypto = require("../utilities/crypto.js")
 
 describe("Crypto.js", function () {
 

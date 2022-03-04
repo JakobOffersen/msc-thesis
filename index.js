@@ -1,11 +1,11 @@
 const Fuse = require("fuse-native")
 const { promisify } = require("util")
-const { beforeShutdown, callbackifyHandlers } = require("./util")
-const { FuseHandlers } = require("./fuse/fuse-crypto-handlers")
-const Keyring = require("./key-management/keyring")
-const { LOCAL_KEYRING_PATH, BASE_DIR, MOUNT_DIR, LOCAL_USERPAIR_PATH } = require("./constants")
+const { beforeShutdown, callbackifyHandlers } = require("./utilities/util.js")
+const { FuseHandlers } = require("./fuse/fuse-crypto-handlers.js")
+const Keyring = require("./key-management/keyring.js")
+const { LOCAL_KEYRING_PATH, BASE_DIR, MOUNT_DIR, LOCAL_USERPAIR_PATH } = require("./constants.js")
 const { dirname, join, basename } = require("path")
-const makeUser = require("./utilities/make-user")
+const makeUser = require("./utilities/make-user.js")
 
 ;(async () => {
     const args = process.argv.slice(2)

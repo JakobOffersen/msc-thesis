@@ -1,7 +1,7 @@
 const { createReadStream } = require("fs")
 const sodium = require("sodium-native")
-const fsFns = require("../fsFns.js")
-const { signDetached, Hasher } = require("../crypto")
+const fsFns = require("../utilities/fsFns.js")
+const { signDetached, Hasher } = require("../utilities/crypto")
 const {
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,

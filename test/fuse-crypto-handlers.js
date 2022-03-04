@@ -1,5 +1,5 @@
 const assert = require("chai").assert
-const { FuseHandlers } = require("../fuse/fuse-crypto-handlers")
+const { FuseHandlers } = require("../fuse/fuse-crypto-handlers.js")
 const {
     STREAM_CHUNK_SIZE,
     STREAM_CIPHER_CHUNK_SIZE,
@@ -9,13 +9,13 @@ const {
     CAPABILITY_TYPE_WRITE,
     CAPABILITY_TYPE_READ,
     CAPABILITY_TYPE_VERIFY
-} = require("../constants")
-const Keyring = require("../key-management/keyring")
+} = require("../constants.js")
+const Keyring = require("../key-management/keyring.js")
 const { join } = require("path")
 const fs = require("fs/promises")
-const fsFns = require("../fsFns.js")
+const fsFns = require("../utilities/fsFns.js")
 const sodium = require("sodium-native")
-const crypto = require("../crypto")
+const crypto = require("../utilities/crypto.js")
 const { tmpdir } = require("os")
 
 const tempDir = tmpdir()

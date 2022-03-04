@@ -5,9 +5,9 @@ const { createReadStream } = require("fs")
 const queue = require("async/queue")
 const { basename, dirname, extname, relative, join } = require("path")
 const { Dropbox } = require("dropbox")
-const dch = require("../dropbox-content-hasher")
+const dch = require("../utilities/dropbox-content-hasher.js")
 const sodium = require("sodium-native")
-const { verifyDetached, decryptAsymmetric, hash, Hasher } = require("../crypto")
+const { verifyDetached, decryptAsymmetric, hash, Hasher } = require("../utilities/crypto.js")
 const {
     SIGNATURE_SIZE,
     FSP_ACCESS_TOKEN,
@@ -19,7 +19,7 @@ const {
     CAPABILITY_TYPE_VERIFY
 } = require("../constants")
 const debounce = require("debounce")
-const { retry } = require("../util.js")
+const { retry } = require("../utilities/util.js")
 const RevisionStore = require("./revision-store.js")
 const FileHandle = require("../fuse/file-handle.js")
 
