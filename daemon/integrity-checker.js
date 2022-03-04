@@ -74,7 +74,8 @@ class IntegrityChecker extends EventEmitter {
 
             // check the shared postal box for capabilities
             try {
-                const sharedPostalBoxPaths = (await fs.readdir(join(BASE_DIR, POSTAL_BOX_SHARED))).map(p => join(BASE_DIR, POSTAL_BOX_SHARED, p))
+                const postalBoxPath = join(BASE_DIR, POSTAL_BOX_SHARED)
+                const sharedPostalBoxPaths = (await fs.readdir(postalBoxPath)).map(p => join(postalBoxPath, p))
 
                 for (const p of sharedPostalBoxPaths) {
                     await this._checkSharedPostalBox(p)

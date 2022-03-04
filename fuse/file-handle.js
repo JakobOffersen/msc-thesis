@@ -16,14 +16,13 @@ const FSError = require("./fs-error.js")
 
 class FileHandle {
     /**
-     * TODO: Fix params documentation
      * @param {number} fd
-     * @param {Buffer} key
+     * @param {Buffer} capabilities
      */
     constructor(fd, capabilities) {
         this.fd = fd
 
-        this.readCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_READ) //TODO: refactor to not depend on TYPE_READ
+        this.readCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_READ)
         this.writeCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_WRITE)
         this.verifyCapability = capabilities.find(cap => cap.type === CAPABILITY_TYPE_VERIFY)
 
