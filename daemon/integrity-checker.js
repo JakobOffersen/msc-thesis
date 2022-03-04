@@ -5,18 +5,18 @@ const { createReadStream } = require("fs")
 const queue = require("async/queue")
 const { basename, dirname, extname, relative, join } = require("path")
 const { Dropbox } = require("dropbox")
-const fsFns = require("../fsFns")
 const dch = require("../dropbox-content-hasher")
 const sodium = require("sodium-native")
-const { verifyDetached, decryptAsymmetric, Hasher } = require("../crypto")
+const { verifyDetached, decryptAsymmetric, hash, Hasher } = require("../crypto")
 const {
-    STREAM_CIPHER_CHUNK_SIZE,
     SIGNATURE_SIZE,
     FSP_ACCESS_TOKEN,
     POSTAL_BOX_SHARED,
-    CAPABILITY_TYPE_VERIFY,
     BASE_DIR,
-    DAEMON_CONTENT_REVISION_STORE_PATH
+    DAEMON_CONTENT_REVISION_STORE_PATH,
+    CAPABILITY_TYPE_READ,
+    CAPABILITY_TYPE_WRITE,
+    CAPABILITY_TYPE_VERIFY
 } = require("../constants")
 const debounce = require("debounce")
 const { retry } = require("../util.js")
@@ -218,17 +218,12 @@ class IntegrityChecker extends EventEmitter {
                 // is a regular write-operation: verify the signature
                 // compute the hash of the content
                 if (contents) {
-                    const hash = await ciphertextHashContent(contents)
+                    const fileHash = hash(contents)
                     const signature = contents.subarray(0, sodium.crypto_sign_BYTES)
-                    const verified = verifyDetached(signature, hash, verifyCapability.key)
+                    const verified = verifyDetached(signature, fileHash, verifyCapability.key)
                     return verified
                 } else {
-                    const hash = await ciphertextHash(localPath)
-                    const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
-                    const fd = await fsFns.open(localPath, "r")
-                    await fsFns.read(fd, signature, 0, signature.length, 0)
-                    const verified = verifyDetached(signature, hash, verifyCapability.key)
-                    return verified
+                    return _verifySignature(localPath, verifyCapability.key)
                 }
             }
         } catch (error) {
@@ -319,6 +314,29 @@ class IntegrityChecker extends EventEmitter {
         }
     }
 
+    async _verifySignature(localPath, verifyCapability) {
+        
+        let fd;
+        
+        try {
+            fd = await fs.open(localPath)
+            
+            // Compute hash of file
+            const fileHash = await computeFileHash(fd)
+
+            // Read signature from file header
+            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+            await fd.read(signature, 0, signature.length, 0)
+
+            // Verify signature
+            return verifyDetached(signature, fileHash, verifyCapability.key)
+        } catch (error) {
+            return false
+        } finally {
+            await fd?.close()
+        }
+    }
+
     _remotePath(localPath) {
         return "/" + relative(this._watchPath, localPath)
     }
@@ -328,7 +346,6 @@ class IntegrityChecker extends EventEmitter {
 // computes their 'content_hash'.
 async function dropboxContentHash(localPath) {
     return new Promise((resolve, reject) => {
-        //TODO: lock while hashing?
         const hasher = dch.create()
         const stream = createReadStream(localPath)
         stream.on("data", data => hasher.update(data))
@@ -337,48 +354,18 @@ async function dropboxContentHash(localPath) {
     })
 }
 
-async function ciphertextHashContent(contents) {
+/**
+ * Hashes the file represented by the given file descriptor
+ */
+async function computeFileHash(fd) {
     const hasher = new Hasher()
 
-    // Compute hash of entire file except the signature in the
-    // same block size as they were written.
-    const cipherSize = contents.length - SIGNATURE_SIZE
-    const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
-    const offset = SIGNATURE_SIZE
+    const stream = fd.createReadStream({ start: SIGNATURE_SIZE })
 
-    let read = 0
-    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
-        const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
-        const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
-        const block = contents.subarray(start, start + blockSize)
-        hasher.update(block)
-        read += blockSize
+    for await (const chunk of stream) {
+        hasher.update(chunk)
     }
-
-    return hasher.final()
-}
-
-// A hash of the content computed in the same way that we compute the hash in FUSE
-async function ciphertextHash(localPath) {
-    const hasher = new Hasher()
-    const fd = await fsFns.open(localPath, "r")
-
-    // Compute hash of entire file except the signature in the
-    // same block size as they were written.
-    const cipherSize = (await fsFns.fstat(fd)).size - SIGNATURE_SIZE
-    const chunkCount = Math.ceil(cipherSize / STREAM_CIPHER_CHUNK_SIZE)
-    const offset = SIGNATURE_SIZE
-
-    let read = 0
-    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
-        const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
-        const blockSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, cipherSize - read)
-        const block = Buffer.alloc(blockSize)
-        await fsFns.read(fd, block, 0, block.length, start)
-        hasher.update(block)
-        read += blockSize
-    }
-
+    
     return hasher.final()
 }
 

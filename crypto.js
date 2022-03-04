@@ -95,6 +95,12 @@ function _makeNonce(size) {
     return nonce
 }
 
+function hash(input) {
+    const out = Buffer.alloc(sodium.crypto_generichash_BYTES)
+    sodium.crypto_generichash(out, input)
+    return out
+}
+
 class Hasher {
     constructor() {
         this.state = Buffer.alloc(sodium.crypto_generichash_STATEBYTES)
@@ -129,5 +135,6 @@ module.exports = {
     verifyDetached,
     signCombined,
     verifyCombined,
+    hash,
     Hasher
 }
