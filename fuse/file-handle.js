@@ -1,3 +1,4 @@
+const { createReadStream } = require("fs")
 const sodium = require("sodium-native")
 const fsFns = require("../fsFns.js")
 const { signDetached, Hasher } = require("../crypto")
@@ -208,21 +209,15 @@ class FileHandle {
         if (this.needsRehash) {
             this.hasher = new Hasher()
 
-            // Compute hash of entire file except the signature in the
-            // same block size as they were written.
-            const fileLength = await this.#getFileLength()
-            const ciphertextLength = fileLength - SIGNATURE_SIZE
-            const chunkCount = Math.ceil(ciphertextLength / STREAM_CIPHER_CHUNK_SIZE)
-            const offset = SIGNATURE_SIZE
+            // Compute hash of entire file except the signature.
+            const stream = createReadStream(null, {
+                fd: this.fd,
+                start: SIGNATURE_SIZE,
+                autoClose: false
+            })
 
-            let read = 0
-            for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
-                const start = chunkIndex * STREAM_CIPHER_CHUNK_SIZE + offset
-                const chunkSize = Math.min(STREAM_CIPHER_CHUNK_SIZE, ciphertextLength - read)
-                const chunk = Buffer.alloc(chunkSize)
-                await fsFns.read(this.fd, chunk, 0, chunk.byteLength, start)
+            for await (const chunk of stream) {
                 this.hasher.update(chunk)
-                read += chunkSize
             }
 
             this.needsRehash = false
