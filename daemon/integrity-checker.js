@@ -21,6 +21,7 @@ const {
 const debounce = require("debounce")
 const { retry } = require("../util.js")
 const RevisionStore = require("./revision-store.js")
+const FileHandle = require("../fuse/file-handle.js")
 
 const dbx = new Dropbox({ accessToken: FSP_ACCESS_TOKEN })
 
@@ -219,7 +220,7 @@ class IntegrityChecker extends EventEmitter {
                 // compute the hash of the content
                 if (contents) {
                     const fileHash = hash(contents)
-                    const signature = contents.subarray(0, sodium.crypto_sign_BYTES)
+                    const signature = contents.subarray(0, SIGNATURE_SIZE)
                     const verified = verifyDetached(signature, fileHash, verifyCapability.key)
                     return verified
                 } else {
@@ -289,7 +290,7 @@ class IntegrityChecker extends EventEmitter {
             const capability = JSON.parse(content)
             // check if the keyring already contains the capability
             const existing = await this._keyring.getCapabilityWithPathAndType(capability.path, CAPABILITY_TYPE_VERIFY)
-            if (!existing) {
+            if (!existing && (await this._checkCapability(capability))) {
                 await this._keyring.addCapability(capability)
                 this.emit(IntegrityChecker.ADD_CAPABILITY, { localPath, remotePath: this._remotePath(localPath), capability })
             }
@@ -306,30 +307,72 @@ class IntegrityChecker extends EventEmitter {
             const capabilities = JSON.parse(decrypted)
 
             for (const capability of capabilities) {
-                await this._keyring.addCapability(capability)
-                this.emit(IntegrityChecker.ADD_CAPABILITY, { localPath, remotePath: this._remotePath(localPath), capability })
+                if (await this._checkCapability(capability)) {
+                    await this._keyring.addCapability(capability)
+                    this.emit(IntegrityChecker.ADD_CAPABILITY, { localPath, remotePath: this._remotePath(localPath), capability })
+                }
             }
         } catch (error) {
             this.emit(IntegrityChecker.ADD_CAPABILITY_FAILED, { localPath, remotePath: this._remotePath(localPath), error })
         }
     }
 
-    async _verifySignature(localPath, verifyCapability) {
-        
-        let fd;
-        
+    async _checkCapability(capability) {
+        if (!this._keyring.validateCapability(capability)) return false
+
+        const localFilePath = join(BASE_DIR, capability.path)
+
+        switch (capability.type) {
+            case CAPABILITY_TYPE_READ:
+                // Check capability by attempting to decrypt file
+                return this._canDecrypt(localFilePath, capability)
+
+            case CAPABILITY_TYPE_WRITE:
+                // Check capability by deriving veriry key and checking that
+                const verifyKey = Buffer.alloc(sodium.crypto_box_PUBLICKEYBYTES)
+                sodium.crypto_sign_ed25519_sk_to_pk(verifyKey, capability.key)
+                return this._verifySignature(localFilePath, verifyKey)
+
+            case CAPABILITY_TYPE_VERIFY:
+                // Check capability by verifying signature on file
+                return this._verifySignature(localFilePath, capability.key)
+        }
+    }
+
+    async _canDecrypt(localPath, readCapability) {
+        let fd
+
         try {
             fd = await fs.open(localPath)
-            
+
+            const handle = new FileHandle(fd.fd, [readCapability])
+            const fileSize = (await fd.stat()).size
+            // No need to decrypt the entire file to see if the key works.
+            const readLength = Math.min(4096, fileSize)
+            await handle.read(Buffer.alloc(4096), readLength, 0)
+            return true
+        } catch (error) {
+            return false
+        } finally {
+            await fd?.close()
+        }
+    }
+
+    async _verifySignature(localPath, verifyKey) {
+        let fd
+
+        try {
+            fd = await fs.open(localPath)
+
             // Compute hash of file
             const fileHash = await computeFileHash(fd)
 
             // Read signature from file header
-            const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+            const signature = Buffer.alloc(SIGNATURE_SIZE)
             await fd.read(signature, 0, signature.length, 0)
 
             // Verify signature
-            return verifyDetached(signature, fileHash, verifyCapability.key)
+            return verifyDetached(signature, fileHash, verifyKey)
         } catch (error) {
             return false
         } finally {
@@ -365,7 +408,7 @@ async function computeFileHash(fd) {
     for await (const chunk of stream) {
         hasher.update(chunk)
     }
-    
+
     return hasher.final()
 }
 

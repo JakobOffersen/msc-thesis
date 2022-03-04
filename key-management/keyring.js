@@ -61,7 +61,7 @@ class Keyring {
     }
 
     async removeCapability(capability) {
-        if (!this._capabilityIsValid(capability)) throw new Error("Cannot remove invalid capability in keyring. Received " + JSON.stringify(capability))
+        if (!this.validateCapability(capability)) throw new Error("Cannot remove invalid capability in keyring. Received " + JSON.stringify(capability))
         await this.removeCapabilitiesWithPath(capability.path, capability.type)
     }
 
@@ -89,7 +89,7 @@ class Keyring {
         if (!capability.hasOwnProperty("createdAt")) capability.createdAt = DateTime.now()
         if (!capability.hasOwnProperty("updatedAt")) capability.updatedAt = DateTime.now()
 
-        if (!this._capabilityIsValid(capability)) {
+        if (!this.validateCapability(capability)) {
             throw new Error("Cannot add invalid capability to keyring. Received " + JSON.stringify(capability))
         }
 
@@ -194,7 +194,7 @@ class Keyring {
         }
     }
 
-    _capabilityIsValid(capability) {
+    validateCapability(capability) {
         const res =
             Object.keys(capability).length === 5 &&
             capability.hasOwnProperty("createdAt") &&
