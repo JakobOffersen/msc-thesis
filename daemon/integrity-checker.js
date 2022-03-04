@@ -219,7 +219,7 @@ class IntegrityChecker extends EventEmitter {
                 // is a regular write-operation: verify the signature
                 // compute the hash of the content
                 if (contents) {
-                    const fileHash = hash(contents)
+                    const fileHash = hash(contents.subarray(SIGNATURE_SIZE))
                     const signature = contents.subarray(0, SIGNATURE_SIZE)
                     const verified = verifyDetached(signature, fileHash, verifyCapability.key)
                     return verified
@@ -278,7 +278,7 @@ class IntegrityChecker extends EventEmitter {
     }
 
     _debouncePushJob({ localPath, eventType }) {
-        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 8000))
+        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 1500))
         const debounced = this.debouncers.get(localPath)
         this.emit(IntegrityChecker.CHANGE, { remotePath: this._remotePath(localPath), localPath, eventType })
         debounced({ localPath, eventType })
