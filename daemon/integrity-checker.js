@@ -224,7 +224,7 @@ class IntegrityChecker extends EventEmitter {
                     const verified = verifyDetached(signature, fileHash, verifyCapability.key)
                     return verified
                 } else {
-                    return _verifySignature(localPath, verifyCapability.key)
+                    return await this._verifySignature(localPath, verifyCapability.key)
                 }
             }
         } catch (error) {
@@ -278,7 +278,7 @@ class IntegrityChecker extends EventEmitter {
     }
 
     _debouncePushJob({ localPath, eventType }) {
-        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 3000))
+        if (!this.debouncers.has(localPath)) this.debouncers.set(localPath, debounce(this._pushJob.bind(this), 8000))
         const debounced = this.debouncers.get(localPath)
         this.emit(IntegrityChecker.CHANGE, { remotePath: this._remotePath(localPath), localPath, eventType })
         debounced({ localPath, eventType })
@@ -359,6 +359,7 @@ class IntegrityChecker extends EventEmitter {
     }
 
     async _verifySignature(localPath, verifyKey) {
+        if (!Buffer.isBuffer(verifyKey)) verifyKey = Buffer.from(verifyKey, "hex")
         let fd
 
         try {
@@ -403,7 +404,7 @@ async function dropboxContentHash(localPath) {
 async function computeFileHash(fd) {
     const hasher = new Hasher()
 
-    const stream = fd.createReadStream({ start: SIGNATURE_SIZE })
+    const stream = fd.createReadStream({ start: SIGNATURE_SIZE, autoClose: false })
 
     for await (const chunk of stream) {
         hasher.update(chunk)
