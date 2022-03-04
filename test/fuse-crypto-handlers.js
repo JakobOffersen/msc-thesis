@@ -331,7 +331,7 @@ describe("fuse handlers", function () {
                 const remaining = position + injection.byteLength > message.byteLength ? Buffer.alloc(0) : message.subarray(position + injection.byteLength)
                 const newMessage = Buffer.concat([head, injection, remaining])
 
-                const mode = 33188 // the mode FUSE uses when it calls our handler //TODO: Refactor all 'modes' into one constant with documentation as for why this mode is needed
+                const mode = 33188 // the mode FUSE uses when it calls our handler
                 const fd = await handlers.create(testFile, mode)
                 await handlers.write(testFile, fd, message, message.byteLength, 0)
                 await handlers.write(testFile, fd, injection, injection.byteLength, position)
