@@ -3,13 +3,17 @@ const fs = require("fs/promises")
 const { join, dirname } = require("path")
 
 async function clearDirectory(path) {
-    const resources = await fs.readdir(path)
-    await Promise.all(
-        resources.map(res => {
-            fs.rm(join(path, res), { force: true, recursive: true })
-        })
-    )
-    console.log(`cleared ${path}`)
+    try {
+        const resources = await fs.readdir(path)
+        await Promise.all(
+            resources.map(res => {
+                fs.rm(join(path, res), { force: true, recursive: true })
+            })
+        )
+        console.log(`cleared ${path}`)
+    } catch {
+        console.log(`path ${path} does not exist`)
+    }
 }
 
 async function unlink(path) {

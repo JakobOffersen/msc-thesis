@@ -288,6 +288,7 @@ class IntegrityChecker extends EventEmitter {
         try {
             const content = await fs.readFile(localPath)
             const capability = JSON.parse(content)
+            capability.key = Buffer.from(capability.key, "hex")
             // check if the keyring already contains the capability
             const existing = await this._keyring.getCapabilityWithPathAndType(capability.path, CAPABILITY_TYPE_VERIFY)
             if (!existing && (await this._checkCapability(capability))) {
@@ -319,8 +320,8 @@ class IntegrityChecker extends EventEmitter {
 
     async _checkCapability(capability) {
         if (!this._keyring.validateCapability(capability)) return false
-
         const localFilePath = join(BASE_DIR, capability.path)
+        capability.key = Buffer.from(capability.key, "hex")
 
         switch (capability.type) {
             case CAPABILITY_TYPE_READ:
@@ -344,12 +345,11 @@ class IntegrityChecker extends EventEmitter {
 
         try {
             fd = await fs.open(localPath)
-
             const handle = new FileHandle(fd.fd, [readCapability])
             const fileSize = (await fd.stat()).size
             // No need to decrypt the entire file to see if the key works.
             const readLength = Math.min(4096, fileSize)
-            await handle.read(Buffer.alloc(4096), readLength, 0)
+            await handle.read(Buffer.alloc(readLength), readLength, 0)
             return true
         } catch (error) {
             return false
